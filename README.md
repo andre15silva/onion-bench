@@ -85,6 +85,47 @@ Hard negatives come from three routes, and each item records its route in
 The prompt is in `onion_bench/prompts.py` (`PROMPT_VERSION` is stored with
 every response). `onion-bench show-prompt --id <item>` prints the exact prompt.
 
+### Running on a Claude Pro/Max subscription (`--backend claude-cli`)
+
+`onion-bench run --backend claude-cli` sends each sample through a separate
+`claude -p` process, which runs on your Claude Code login instead of an API key. It
+keeps the same prompt, structured answer, result format and resume behaviour. Each
+call uses:
+
+- `--system-prompt <eval prompt>` to replace the Claude Code agent prompt.
+- `--tools ""` plus `--disallowedTools "mcp__*"`, so no web, Bash or MCP tools are available.
+- `--safe-mode`, so no CLAUDE.md, memory, skills, plugins or hooks are loaded.
+- `--no-session-persistence` and `--json-schema`.
+
+The child process runs in an empty directory with a scrubbed environment.
+`ANTHROPIC_API_KEY` is never passed to it, so calls can't fall back to API billing.
+
+Every call is checked against its init and result events. A call is recorded as
+`invalid_setup` instead of as an answer, and the run stops, if any of these differ
+from expected:
+
+- the tools offered (only `StructuredOutput` is allowed),
+- the MCP servers,
+- the credential source (it must be the subscription),
+- the model that actually answered.
+
+The plan's usage is logged on every call, and the run pauses when any usage window
+reaches `--pause-at` (default 90%) until that window resets.
+
+Context differences from the API backend, verified by capturing the request:
+
+- Claude Code still adds a one-line SDK preamble, a reminder containing the account
+  e-mail, and an environment block (platform, model name, knowledge cutoff, today's date).
+- Thinking summaries are not returned.
+
+None of this identifies an article's source. Records carry
+`backend: "claude_cli"`, so don't pool them with API-backend runs.
+
+```bash
+onion-bench run --backend claude-cli --sample 100 --out results/quick   # ~1,000 calls
+onion-bench report --sample 100 --out results/quick
+```
+
 ## Metrics
 
 Positive class = **fake**.

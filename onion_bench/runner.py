@@ -26,6 +26,9 @@ from .prompts import OUTPUT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT, parse_answer,
 
 log = logging.getLogger(__name__)
 
+# Statuses that are not outcomes of the model: retried on resume, ignored by the report.
+RETRYABLE = ("api_error", "invalid_setup")
+
 
 @dataclass
 class ModelSpec:
@@ -116,6 +119,35 @@ def balance_items(items: list[dict], seed: int = 0) -> list[dict]:
     return [it for it in items if it["id"] in ids]
 
 
+def stratified_sample(items: list[dict], n: int, seed: int = 0) -> list[dict]:
+    """A deterministic subset of ~n items with the same (language, label)
+    proportions as `items`, spread round-robin over sources and subsets."""
+    import random
+    from collections import defaultdict
+
+    if n >= len(items):
+        return items
+    rng = random.Random(seed)
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for it in sorted(items, key=lambda r: r["id"]):
+        groups[(it["language"], it["label"])].append(it)
+    keep = set()
+    for g in groups.values():
+        k = max(1, round(n * len(g) / len(items)))
+        by: dict[tuple, list[dict]] = defaultdict(list)
+        for it in g:
+            by[(it["subset"], it["source"])].append(it)
+        for v in by.values():
+            rng.shuffle(v)
+        order = []
+        while any(by.values()):
+            for key in sorted(by):
+                if by[key]:
+                    order.append(by[key].pop())
+        keep |= {it["id"] for it in order[:k]}
+    return [it for it in items if it["id"] in keep]
+
+
 def after_cutoff(item: dict, spec: ModelSpec) -> bool:
     if spec.knowledge_cutoff is None:
         return True
@@ -131,7 +163,7 @@ def done_keys(responses: Path) -> set[tuple[str, str, int]]:
             continue
         r = json.loads(line)
         # Transient failures are retried on the next run; final outcomes are kept.
-        if r["status"] != "api_error":
+        if r["status"] not in RETRYABLE:
             keys.add((r["model"], r["item_id"], r["sample"]))
     return keys
 

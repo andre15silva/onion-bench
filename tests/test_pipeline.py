@@ -186,3 +186,54 @@ def test_balance_items_per_language():
     assert {i["source"] for i in pt if i["label"] == "real"} == {"x", "obs", "rtp"}  # round-robin
     assert not [i for i in out if i["language"] == "en"]  # no real en -> nothing to compare
     assert out == balance_items(items, seed=0)
+
+
+def _stream(tools=("StructuredOutput",), api_key="none", served="m-a", so=None, stop="tool_use", is_error=False, text=None):
+    ev = [
+        {"type": "system", "subtype": "init", "tools": list(tools), "mcp_servers": [], "apiKeySource": api_key, "model": served},
+        {"type": "assistant", "message": {"model": served, "content": []}},
+        {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "rateLimitType": "five_hour", "resetsAt": 1,
+                                                          "unifiedWindows": {"five_hour": {"utilization": 0.3}}}},
+        {"type": "result", "structured_output": so, "stop_reason": stop, "is_error": is_error, "result": text,
+         "modelUsage": {served: {}}, "usage": {"input_tokens": 2, "cache_creation_input_tokens": 1000, "output_tokens": 50}, "duration_ms": 1500},
+    ]
+    return [json.dumps(e) for e in ev]
+
+
+def test_cli_backend_parse_stream():
+    from onion_bench.cli_backend import command, parse_stream
+    from onion_bench.runner import Job
+
+    job = Job(ModelSpec("m-a", effort="high"), {"id": "x", "title": "T", "text": "B"}, 0)
+    ok = parse_stream(job, _stream(so={"verdict": "fake", "p_fake": 80}))
+    assert ok["status"] == "ok" and ok["verdict"] == "fake" and ok["p_fake"] == 0.8
+    assert ok["backend"] == "claude_cli" and ok["rate_limit"]["utilization"] == 0.3 and ok["input_tokens"] == 1002
+    assert parse_stream(job, _stream(tools=("StructuredOutput", "WebSearch"), so={"verdict": "fake", "p_fake": 1}))["status"] == "invalid_setup"
+    assert parse_stream(job, _stream(api_key="ANTHROPIC_API_KEY", so={"verdict": "fake", "p_fake": 1}))["status"] == "invalid_setup"
+    assert parse_stream(job, _stream(served="m-b", so={"verdict": "fake", "p_fake": 1}))["status"] == "invalid_setup"
+    assert parse_stream(job, _stream(stop="refusal"))["status"] == "refusal"
+    assert parse_stream(job, _stream(is_error=True, text="You've hit your session limit"))["status"] == "rate_limited"
+    assert parse_stream(job, [])["status"] == "api_error"
+    cmd = command(job)
+    assert cmd[cmd.index("--tools") + 1] == "" and "--safe-mode" in cmd and cmd[cmd.index("--model") + 1] == "m-a"
+
+
+def test_cli_child_env_drops_keys(monkeypatch):
+    from onion_bench.cli_backend import child_env
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("CLAUDE_CODE_USER_EMAIL", "x@y")
+    env = child_env()
+    assert "ANTHROPIC_API_KEY" not in env and "CLAUDE_CODE_USER_EMAIL" not in env and "PATH" in env
+
+
+def test_stratified_sample_keeps_mix():
+    from onion_bench.runner import stratified_sample
+
+    items = [{"id": f"{l}{lab}{i}", "language": l, "label": lab, "subset": "s", "source": f"src{i % 3}"}
+             for l, n in (("en", 60), ("pt", 20)) for lab in ("fake", "real") for i in range(n)]
+    sub = stratified_sample(items, 40, seed=0)
+    from collections import Counter
+    c = Counter((i["language"], i["label"]) for i in sub)
+    assert c == {("en", "fake"): 15, ("en", "real"): 15, ("pt", "fake"): 5, ("pt", "real"): 5}
+    assert sub == stratified_sample(items, 40, seed=0)

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .metrics import evaluate, group_by_item, paired_comparison
-from .runner import EvalConfig, after_cutoff
+from .runner import RETRYABLE, EvalConfig, after_cutoff
 
 
 def _f(x, digits=3) -> str:
@@ -42,7 +42,7 @@ def build_report(cfg: EvalConfig, items: list[dict], responses_path: Path, out_d
     labels = {it["id"]: int(it["label"] == "fake") for it in items}
     per_model_resp: dict[str, list[dict]] = defaultdict(list)
     for r in responses:
-        if r["status"] != "api_error":  # transient failures are not outcomes
+        if r["status"] not in RETRYABLE:  # transient failures / bad setups are not outcomes
             per_model_resp[r["model"]].append(r)
 
     out: dict = {"models": {}, "comparisons": {}}

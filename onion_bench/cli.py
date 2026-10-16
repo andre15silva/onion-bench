@@ -86,7 +86,7 @@ def cmd_review_implausible(a) -> None:
 
 
 def _cfg_items(a):
-    from .runner import EvalConfig, balance_items, load_items
+    from .runner import EvalConfig, balance_items, load_items, stratified_sample
 
     cfg = EvalConfig.load(Path(a.config))
     if a.samples:
@@ -94,6 +94,8 @@ def _cfg_items(a):
     items = load_items(Path(a.dataset), include_leak_flagged=cfg.include_leak_flagged)
     if cfg.balance_per_language:
         items = balance_items(items, seed=cfg.seed)
+    if a.sample:
+        items = stratified_sample(items, a.sample, seed=cfg.seed)
     if a.limit:
         items = items[: a.limit]
     return cfg, items
@@ -108,7 +110,15 @@ def cmd_run(a) -> None:
     print(f"{len(items)} items, {len(jobs)} calls to make -> {out}")
     if a.dry_run or not jobs:
         return
-    print(json.dumps(asyncio.run(run_async(cfg, jobs, out))))
+    if a.backend == "claude-cli":
+        from .cli_backend import run_cli
+
+        counts = asyncio.run(run_cli(cfg, jobs, out, concurrency=a.concurrency or 4, pause_at_utilization=a.pause_at))
+    else:
+        if a.concurrency:
+            cfg.concurrency = a.concurrency
+        counts = asyncio.run(run_async(cfg, jobs, out))
+    print(json.dumps(counts))
 
 
 def cmd_submit_batch(a) -> None:
@@ -211,6 +221,12 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument("--model", action="append", help="restrict to model id(s)")
         s.add_argument("--samples", type=int, help="override n_samples")
         s.add_argument("--limit", type=int, help="only the first N items (smoke tests)")
+        s.add_argument("--sample", type=int, help="stratified subset of ~N items (same language/label mix)")
+        s.add_argument("--backend", choices=["api", "claude-cli"], default="api",
+                       help="api: Anthropic API key; claude-cli: `claude -p` on a Pro/Max subscription")
+        s.add_argument("--concurrency", type=int)
+        s.add_argument("--pause-at", type=float, default=0.9,
+                       help="claude-cli: pause when the plan's usage window reaches this utilization")
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--no-wait", action="store_true")
         s.add_argument("--n-boot", type=int, default=1000)
