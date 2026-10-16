@@ -101,7 +101,8 @@ def build_report(cfg: EvalConfig, items: list[dict], responses_path: Path, out_d
         for (src, subset, label), ids in sorted(src_ids.items()):
             calls = [v for i in ids if i in g for v in g[i]["votes"]]
             maj = [int(np.mean(g[i]["votes"]) > 0.5) for i in ids if i in g and g[i]["votes"]]
-            mres["per_source"][src] = {
+            # A source can hold several subsets (e.g. Snopes: misinformation and fact_checked_true).
+            mres["per_source"][f"{src}/{subset}"] = {
                 "subset": subset,
                 "label": label,
                 "n_items": len(ids),

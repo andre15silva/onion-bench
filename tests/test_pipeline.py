@@ -411,3 +411,20 @@ def test_balance_keeps_counterfactual_bases():
            {"id": "cf2", "language": "pt", "label": "fake", "subset": "counterfactual", "source": "counterfactual", "provenance": {"base_id": "r3"}}]
     out = {i["id"] for i in balance_items(reals + cfs, seed=0)}
     assert {"cf1", "cf2", "r17", "r3"} <= out and len(out) == 4
+
+
+def test_report_per_source_splits_subsets(tmp_path):
+    from onion_bench.report import build_report
+
+    items = [
+        {"id": "f", "language": "en", "label": "fake", "subset": "misinformation", "source": "snopes_claims", "published_at": "2026-08-01T00:00:00+00:00"},
+        {"id": "t", "language": "en", "label": "real", "subset": "fact_checked_true", "source": "snopes_claims", "published_at": "2026-08-01T00:00:00+00:00"},
+    ]
+    resp = tmp_path / "responses.jsonl"
+    resp.write_text("\n".join(json.dumps({"model": "m", "item_id": i, "sample": 0, "status": "ok", "verdict": v, "p_fake": p})
+                              for i, v, p in [("f", "fake", 0.9), ("t", "fake", 0.8)]))
+    cfg = EvalConfig(models=[ModelSpec("m", date(2026, 6, 30))])
+    out = build_report(cfg, items, resp, tmp_path, n_boot=0)
+    ps = out["models"]["m"]["per_source"]
+    assert ps["snopes_claims/misinformation"]["judged_fake_rate_calls"] == 1.0
+    assert ps["snopes_claims/fact_checked_true"]["judged_fake_rate_calls"] == 1.0 and len(ps) == 2
