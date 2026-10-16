@@ -17,7 +17,7 @@ from .scrape import _read_jsonl, load_sources, reject_reason
 PROMPT_FIELDS = ("title", "text")
 
 DATASET_COLUMNS = [
-    "id", "title", "text", "language", "label", "subset",
+    "id", "title", "text", "has_text", "language", "label", "subset", "original_title",
     "source", "source_name", "url", "published_at", "modified_at", "authors",
     "section", "keywords", "fetched_at", "extraction_method", "collected_via",
     "word_count", "content_sha256", "leak_flags", "eval_eligible", "selection_method",
@@ -73,6 +73,8 @@ def assemble(
                 "id": rid,
                 "title": rec["title"],
                 "text": rec["text"],
+                "has_text": not rec.get("headline_only", False),
+                "original_title": rec.get("original_title"),
                 "language": src["language"],
                 "label": src["label"],
                 "subset": src["subset"],

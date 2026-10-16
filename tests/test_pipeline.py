@@ -311,3 +311,35 @@ def test_variant_is_recorded_and_not_mixed(tmp_path):
     cfg.prompt_variant = "full"
     with pytest.raises(ValueError):
         plan_jobs(cfg, items, out)
+
+
+def test_import_index_strips_branding(tmp_path):
+    from onion_bench.scrape import get_source, import_index
+
+    src = get_source("inimigo_publico")
+    page = tmp_path / "index.html"
+    page.write_text(
+        "<html><body>"
+        "<h2><a href='https://expresso.pt/inimigo-publico/2026-08-01-inimigo-publico-x-ab12?utm_source=y'>Inimigo Público: Ministro faz coisa</a></h2>"
+        "<a href='https://expresso.pt/inimigo-publico/2026-08-02-y-cd34'><h3>Inimigo Público. Outra coisa</h3></a>"
+        "<h3><a href='https://expresso.pt/inimigo-publico/2026-08-03-cartoon-ef56'>Cartoon*</a></h3>"
+        "</body></html>", encoding="utf-8")
+    n, urls = import_index(src, page, tmp_path, src["index_url_pattern"])
+    rows = [json.loads(l) for l in (tmp_path / "inimigo_publico.jsonl").read_text().splitlines()]
+    assert n == 2 and len(urls) == 2
+    assert [r["title"] for r in rows] == ["Ministro faz coisa", "Outra coisa"]
+    assert rows[0]["original_title"] == "Inimigo Público: Ministro faz coisa"
+    assert rows[0]["url"] == "https://expresso.pt/inimigo-publico/2026-08-01-inimigo-publico-x-ab12"
+    assert rows[0]["published_at"].startswith("2026-08-01") and rows[0]["headline_only"]
+
+
+def test_headline_only_items_only_in_headline_variant(tmp_path):
+    from onion_bench.runner import load_items
+
+    ds = tmp_path / "d.jsonl"
+    ds.write_text("\n".join(json.dumps(r) for r in [
+        {"id": "a", "eval_eligible": True, "has_text": True},
+        {"id": "b", "eval_eligible": True, "has_text": False},
+    ]))
+    assert [r["id"] for r in load_items(ds)] == ["a"]
+    assert [r["id"] for r in load_items(ds, prompt_variant="headline_only")] == ["a", "b"]

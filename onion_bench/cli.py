@@ -59,6 +59,17 @@ def cmd_import_html(a) -> None:
     print(f"imported {import_html(get_source(a.source), files, RAW)} pages into {RAW / (a.source + '.jsonl')}")
 
 
+def cmd_import_index(a) -> None:
+    from .scrape import get_source, import_index
+
+    src = get_source(a.source)
+    n, urls = import_index(src, Path(a.page), RAW, a.url_pattern or src["index_url_pattern"])
+    print(f"imported {n} headline-only items from {len(urls)} article links into {RAW / (a.source + '.jsonl')}")
+    if a.urls_out:
+        Path(a.urls_out).write_text("\n".join(urls) + "\n")
+        print(f"article URLs written to {a.urls_out} (save these pages and run import-html for full texts)")
+
+
 def cmd_assemble(a) -> None:
     from .assemble import assemble
 
@@ -93,7 +104,7 @@ def _cfg_items(a):
         cfg.prompt_variant = a.prompt_variant
     if a.samples:
         cfg.n_samples = a.samples
-    items = load_items(Path(a.dataset), include_leak_flagged=cfg.include_leak_flagged)
+    items = load_items(Path(a.dataset), include_leak_flagged=cfg.include_leak_flagged, prompt_variant=cfg.prompt_variant)
     if cfg.balance_per_language:
         items = balance_items(items, seed=cfg.seed)
     if a.sample:
@@ -219,6 +230,13 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("source")
     s.add_argument("paths", nargs="+")
     s.set_defaults(fn=cmd_import_html)
+
+    s = sub.add_parser("import-index", help="import headlines from a saved section/index page (headline_only items)")
+    s.add_argument("source")
+    s.add_argument("page")
+    s.add_argument("--url-pattern", help="regex for article links (default: the source's index_url_pattern)")
+    s.add_argument("--urls-out", help="also write the article URLs to this file")
+    s.set_defaults(fn=cmd_import_index)
 
     s = sub.add_parser("assemble", help="build data/dataset/onion_bench.jsonl from raw files")
     s.add_argument("--since", default=DEFAULT_SINCE)

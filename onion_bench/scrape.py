@@ -114,14 +114,28 @@ def discover_candidates(fetcher: Fetcher, src: dict, since: datetime) -> list[di
     return list(seen.values())
 
 
+def strip_title_prefix(title: str | None, src: dict) -> tuple[str | None, str | None]:
+    """Remove outlet branding prepended to headlines (e.g. "Inimigo Público: ...").
+    Returns (title, original_title_if_changed)."""
+    if not title:
+        return title, None
+    for pat in src.get("title_prefix_strip", []):
+        new = re.sub(pat, "", title, count=1).strip()
+        if new != title:
+            return new, title
+    return title, None
+
+
 def build_record(src: dict, url: str, html: str, cfg: ExtractConfig) -> dict:
     ex = extract(html, cfg)
     text = ex.text
+    title, original_title = strip_title_prefix(ex.title, src)
     return {
         "source": src["name"],
         "url": url,
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "title": ex.title,
+        "title": title,
+        "original_title": original_title,
         "text": text,
         "published_at": ex.published_at.isoformat() if ex.published_at else None,
         "modified_at": ex.modified_at.isoformat() if ex.modified_at else None,
@@ -139,7 +153,7 @@ def build_record(src: dict, url: str, html: str, cfg: ExtractConfig) -> dict:
 def reject_reason(rec: dict, src: dict, since: datetime, until: datetime | None, min_words: int) -> str | None:
     if not rec["title"]:
         return "no_title"
-    if rec["word_count"] < min_words:
+    if rec["word_count"] < min_words and not rec.get("headline_only"):
         return f"too_short({rec['word_count']})"
     if not rec["published_at"]:
         return "no_date"
@@ -253,3 +267,42 @@ def reextract(src: dict, raw_dir: Path, cache_dir: Path) -> dict:
         out.append(new)
     path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8")
     return dict(stats)
+
+
+def import_index(src: dict, page: Path, raw_dir: Path, url_pattern: str) -> tuple[int, list[str]]:
+    """Import headlines from a saved section/index page as headline-only items
+    (no body text; usable only with the headline_only prompt variant).
+    The publication date is taken from the article URL (YYYY-MM-DD)."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(page.read_text(encoding="utf-8", errors="replace"), "lxml")
+    rx = re.compile(url_pattern)
+    out_path = raw_dir / f"{src['name']}.jsonl"
+    existing = {r["url"]: r for r in _read_jsonl(out_path)}
+    found: dict[str, str] = {}
+    for h in soup.find_all(["h1", "h2", "h3", "h4"]):
+        a = h.find("a", href=True) or h.find_parent("a", href=True)
+        if a is None:
+            continue
+        m = rx.match(a["href"])
+        title = " ".join(h.get_text(" ", strip=True).split())
+        if m and title and not title.lower().startswith("cartoon"):
+            found.setdefault(canonical_url(m.group(0)), title)
+    n = 0
+    for url, raw_title in found.items():
+        if url in existing:  # a full saved page is better than a headline
+            continue
+        d = re.search(r"/(20\d\d-\d\d-\d\d)-", url)
+        title, original = strip_title_prefix(raw_title, src)
+        _append_jsonl(out_path, {
+            "source": src["name"], "url": url,
+            "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "title": title, "original_title": original, "text": "",
+            "published_at": f"{d.group(1)}T12:00:00+00:00" if d else None,
+            "modified_at": None, "authors": [], "section": None, "keywords": [],
+            "page_language": None, "site_name": None, "extraction_method": "index_headline",
+            "word_count": 0, "headline_only": True, "collected_via": "manual_index_import",
+            "html_sha256": None,
+        })
+        n += 1
+    return n, sorted(found)

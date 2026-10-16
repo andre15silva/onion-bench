@@ -82,9 +82,15 @@ class Job:
         return f"{self.model.id}__{self.item['id']}__s{self.sample}"
 
 
-def load_items(dataset: Path, include_leak_flagged: bool = False) -> list[dict]:
+def load_items(dataset: Path, include_leak_flagged: bool = False, prompt_variant: str = "full") -> list[dict]:
+    """Eval items. Headline-only items (no body text) are used only by the
+    headline_only prompt variant."""
     rows = [json.loads(l) for l in dataset.read_text(encoding="utf-8").splitlines() if l.strip()]
-    return [r for r in rows if include_leak_flagged or r["eval_eligible"]]
+    return [
+        r for r in rows
+        if (include_leak_flagged or r["eval_eligible"])
+        and (r.get("has_text", True) or prompt_variant == "headline_only")
+    ]
 
 
 def balance_items(items: list[dict], seed: int = 0) -> list[dict]:

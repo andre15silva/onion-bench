@@ -73,6 +73,10 @@ sources:
       - {type: sitemap, url: "https://expresso.pt/sitemap/news.xml"}
       - {type: sitemap, url: "https://expresso.pt/sitemap/index.xml"}
     url_include: ["/inimigo-publico/"]
+    # Expresso prefixes every headline with the section name; it is removed
+    # (kept in original_title) since it names the outlet.
+    title_prefix_strip: ["^\\s*Inimigo\\s+P[úu]blico\\s*[:|.–-]\\s*"]
+    index_url_pattern: "https://expresso\\.pt/inimigo-publico/\\d{4}-\\d\\d-\\d\\d-[^?#\"]+"
     extract:
       body_selector: null  # unknown layout: JSON-LD articleBody, then trafilatura
     leak_patterns:
