@@ -1,0 +1,25 @@
+# Evaluation settings. Each (model, article) pair is queried `n_samples` times,
+# each in a separate, independent API call with no tools (so no web access).
+
+n_samples: 5
+max_tokens: 16000
+
+# Items published on/before a model's knowledge cutoff are skipped for that
+# model. Cutoffs from Anthropic's model overview pages (both June 2026).
+models:
+  - id: claude-opus-5-5
+    knowledge_cutoff: "2026-06-30"
+    effort: high
+  - id: claude-sonnet-5-5
+    knowledge_cutoff: "2026-06-30"
+    effort: high
+
+# "summarized" stores a readable summary of the model's reasoning with each
+# response (useful for error analysis); "omitted" stores nothing. Thinking
+# itself is always on for these models and is billed the same either way.
+thinking_display: summarized
+
+# Only items with eval_eligible=true (no outlet name found in title/text).
+include_leak_flagged: false
+
+concurrency: 8

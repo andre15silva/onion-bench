@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# onion-bench
+data/cache/
+data/raw/
+data/dataset/
+results/
+data/logs/

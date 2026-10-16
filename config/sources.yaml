@@ -1,0 +1,203 @@
+# Source registry for onion-bench.
+#
+# label:   ground truth -- "fake" (satire/parody) or "real"
+# subset:  satire | real_control | real_implausible
+# discovery: where candidate URLs come from (rss feeds and/or sitemaps)
+# extract: CSS selectors for verbatim title/body extraction (falls back to
+#          JSON-LD articleBody, then trafilatura)
+# leak_patterns: regexes (case-sensitive unless ignore_case) that identify the
+#          outlet inside title/text. Matches are flagged; items stay in the
+#          dataset but are excluded from the eval split by default.
+#
+# Every fetch honours robots.txt for all agents in `robots_agents` (see
+# config/scrape.yaml) and stops on bot-protection challenges.
+
+sources:
+  # ---------------------------------------------------------------- satire
+  - name: the_onion
+    display_name: The Onion
+    homepage: https://theonion.com
+    language: en
+    label: fake
+    subset: satire
+    max_items: 400
+    discovery:
+      - {type: sitemap, url: "https://theonion.com/sitemap_index.xml", child_include: "post-sitemap"}
+      - {type: rss, url: "https://theonion.com/feed/"}
+    url_exclude: ["/video/", "/quiz/", "/horoscopes", "/tag/", "/category/"]
+    # Non-news formats (person-on-the-street quotes, op-eds, charts, games).
+    exclude_sections: ["American Voices", "Opinion", "Editorial", "Point/Counterpoint", "Statshot", "Horoscopes", "Video", "Quiz", "Games", "Infographic", "Puzzle", "Cartoon", "Weddings", "Obituaries"]
+    extract:
+      body_selector: ".entry-content"
+      exclude_selectors: [".wp-block-embed", "figure", ".newsletter", "form", "aside", ".sharedaddy", "script", "style"]
+    leak_patterns:
+      - "\\bThe Onion\\b"
+      - {pattern: "theonion\\.com", ignore_case: true}
+      - "\\bOnion (?:Inc|Staff|News Network|Labs|Social)\\b"
+      - "\\bONN\\b"
+
+  - name: imprensa_falsa
+    display_name: Imprensa Falsa
+    homepage: https://imprensafalsa.com
+    language: pt
+    label: fake
+    subset: satire
+    max_items: 200
+    discovery:
+      - {type: sitemap, url: "https://imprensafalsa.com/sitemap_index.xml", child_include: "post-sitemap"}
+      - {type: rss, url: "https://imprensafalsa.com/feed/"}
+    # Columns, cartoons and readers' letters are not in news-article form.
+    exclude_sections: ["Crónicas", "Cartoon", "Correio dos Leitores", "Opinião"]
+    extract:
+      body_selector: ".td-post-content"
+      exclude_selectors: ["figure", ".td-a-ad", ".td-g-rec", "script", "style", ".sharedaddy"]
+    leak_patterns:
+      - {pattern: "Imprensa\\s+Falsa", ignore_case: true}
+      - {pattern: "imprensafalsa", ignore_case: true}
+      - "\\bIF\\b"  # the outlet's own abbreviation ("o IF sabe que...")
+
+  - name: inimigo_publico
+    display_name: Inimigo Público (Expresso)
+    homepage: https://expresso.pt/inimigo-publico
+    language: pt
+    label: fake
+    subset: satire
+    max_items: 200
+    # expresso.pt sits behind DataDome bot protection and its robots.txt
+    # disallows AI agents. Automatic collection will usually stop with a
+    # BlockedError / RobotsDisallowed; use `onion-bench import-html` on pages
+    # saved from a browser instead (or obtain the texts from the publisher).
+    discovery:
+      - {type: sitemap, url: "https://expresso.pt/sitemap/news.xml"}
+      - {type: sitemap, url: "https://expresso.pt/sitemap/index.xml"}
+    url_include: ["/inimigo-publico/"]
+    extract:
+      body_selector: null  # unknown layout: JSON-LD articleBody, then trafilatura
+    leak_patterns:
+      - {pattern: "Inimigo\\s+P[úu]blico", ignore_case: true}
+      - {pattern: "expresso\\.pt", ignore_case: true}
+
+  # --------------------------------------------------------- real: control
+  - name: bbc_news
+    display_name: BBC News
+    homepage: https://www.bbc.co.uk/news
+    language: en
+    label: real
+    subset: real_control
+    max_items: 400
+    discovery:
+      - {type: sitemap, url: "https://www.bbc.co.uk/sitemaps/https-index-uk-archive.xml"}
+      - {type: rss, url: "https://feeds.bbci.co.uk/news/rss.xml"}
+    url_include: ["^https://www\\.bbc\\.co\\.uk/news/articles/[a-z0-9]+$"]
+    extract:
+      body_selector: "article"
+      paragraph_selector: "[data-testid='rich-text'] p, [data-testid='rich-text'] h2, [data-testid='rich-text'] li"
+      # Regional-page footers and promo lines (page chrome, not reporting).
+      drop_paragraph_patterns:
+        - "^Do you have a story suggestion"
+        - "^Follow .* on (?:BBC|Facebook|X|Instagram)"
+        - "^(?:You can )?[Ff]ollow BBC "
+        - "^Get in touch with "
+        - "^Listen to .* on BBC Sounds"
+        - "^(?:Watch|Listen|Related|More on this story|Sign up for)\\b[^.]{0,80}:$"
+        - "on BBC iPlayer\\.?$"
+    leak_patterns:
+      - "\\bBBC\\b"
+      - {pattern: "bbc\\.co", ignore_case: true}
+
+  - name: rtp_noticias
+    display_name: RTP Notícias
+    homepage: https://www.rtp.pt/noticias
+    language: pt
+    label: real
+    subset: real_control
+    max_items: 200
+    discovery:
+      - {type: sitemap, url: "https://www.rtp.pt/noticias/sitemap"}
+      - {type: rss, url: "https://www.rtp.pt/noticias/rss"}
+    url_include: ["_n\\d+$"]  # _n = text news; _v = video, _d = live/other
+    extract:
+      body_selector: ".article-body"
+      lead_selector: ".article-lead"
+      paragraph_selector: "p"
+      exclude_selectors: ["figure", "script", "style", ".rtp-play-embed"]
+    leak_patterns:
+      - "\\bRTP\\b"
+      - {pattern: "rtp\\.pt", ignore_case: true}
+      - "\\bAntena 1\\b"
+
+  - name: observador
+    display_name: Observador
+    homepage: https://observador.pt
+    language: pt
+    label: real
+    subset: real_control
+    max_items: 200
+    discovery:
+      - {type: sitemap, url: "https://observador.pt/wp-sitemap.xml", child_include: "wp-sitemap-posts-post-", max_child_sitemaps: 8}
+      - {type: rss, url: "https://observador.pt/feed/"}
+    url_include: ["^https://observador\\.pt/20\\d\\d/\\d\\d/\\d\\d/"]
+    url_exclude: ["/liveblogs/", "/programas/", "/opiniao/", "/especiais/"]
+    extract:
+      body_selector: ".article-body-content"
+      exclude_selectors: ["blockquote.wp-embedded-content", "figure", "script", "style", ".obs-ad-placeholder", ".article-related", ".related-articles", ".article-subscribe-cta", "aside"]
+      drop_paragraphs: ["Acompanhe o nosso liveblog de política nacional"]
+    leak_patterns:
+      - "\\bObservador\\b"
+      - {pattern: "observador\\.pt", ignore_case: true}
+
+  # ------------------------------------------- real: seems-fake-but-is-real
+  # Outlets that curate real stories *because* they sound unbelievable.
+  # (The Mirror's "weird news" feed was considered and dropped: most of its
+  # items are ordinary stories.) Complemented by `onion-bench select-implausible`
+  # (LLM-scored + human-reviewed picks from the control pool) and, optionally,
+  # r/nottheonion (needs Reddit API credentials, see README).
+  - name: oddity_central
+    display_name: Oddity Central
+    homepage: https://www.odditycentral.com
+    language: en
+    label: real
+    subset: real_implausible
+    max_items: 150
+    discovery:
+      - {type: listing, url: "https://www.odditycentral.com/category/news/page/{n}", link_pattern: "https://www\\.odditycentral\\.com/news/[a-z0-9-]+\\.html", max_pages: 20}
+      - {type: rss, url: "https://www.odditycentral.com/feed"}
+    url_include: ["^https://www\\.odditycentral\\.com/news/"]
+    extract:
+      body_selector: null  # Elementor layout with generated class names: use trafilatura
+      date_selector: "time"
+    leak_patterns:
+      - {pattern: "Oddity\\s*Central", ignore_case: true}
+
+  - name: noticias_ao_minuto
+    display_name: Notícias ao Minuto
+    homepage: https://www.noticiasaominuto.com
+    language: pt
+    label: real
+    subset: real_control
+    max_items: 150
+    discovery:
+      - {type: sitemap, url: "https://www.noticiasaominuto.com/sitemap.xml"}
+      - {type: rss, url: "https://www.noticiasaominuto.com/rss/ultima-hora"}
+    url_include: ["^https://www\\.noticiasaominuto\\.com/(?:pais|mundo|politica|economia|lifestyle|tech|cultura|desporto)/\\d+/"]
+    extract:
+      body_selector: null
+      drop_paragraph_patterns: ["^Leia Também:", "^Leia Mais:"]
+    leak_patterns:
+      - {pattern: "Not[íi]cias\\s+ao\\s+Minuto", ignore_case: true}
+      - {pattern: "noticiasaominuto", ignore_case: true}
+
+  - name: r_nottheonion
+    display_name: "r/nottheonion (linked articles)"
+    homepage: https://www.reddit.com/r/nottheonion/
+    language: en
+    label: real
+    subset: real_implausible
+    max_items: 200
+    # Optional: requires REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET. Articles are
+    # fetched from the original publishers, each under its own robots.txt.
+    discovery:
+      - {type: reddit, subreddit: nottheonion, t: year}
+    extract:
+      body_selector: null
+    leak_patterns: []
