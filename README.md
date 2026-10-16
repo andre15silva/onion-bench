@@ -126,6 +126,17 @@ onion-bench run --backend claude-cli --sample 100 --out results/quick   # ~1,000
 onion-bench report --sample 100 --out results/quick
 ```
 
+### Integrity probes
+
+```bash
+onion-bench probe cues          # verdict + self-reported cues + "do you recognise this?"
+onion-bench probe memorization  # headline only -> reproduce the lead; overlap with the real lead
+onion-bench probe style-swap    # strip Onion house style / give BBC+CBS an Onion dateline and Title Case
+```
+
+The probes run on the `claude-cli` backend. Their results are written to
+`results/<run>/diagnostics/` and are never mixed into the scored responses.
+
 ## Metrics
 
 Positive class = **fake**.

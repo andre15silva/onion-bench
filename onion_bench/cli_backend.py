@@ -8,8 +8,9 @@ calls. Measures taken to keep it comparable to the API runner:
   `--disallowedTools mcp__*` any MCP tool: no internet. The only tool left is
   `StructuredOutput`, which is how `--json-schema` is implemented.
 - `--safe-mode` keeps CLAUDE.md, memory, skills, plugins and hooks out.
-- The child runs with a scrubbed environment in an empty working directory,
-  so no session/remote context leaks in. ANTHROPIC_API_KEY is never passed,
+- The child runs with a scrubbed environment in an empty, neutrally named
+  temp directory outside the repo (Claude Code tells the model its working
+  directory path), so no session/remote context or project name leaks in. ANTHROPIC_API_KEY is never passed,
   so calls cannot silently bill an API key.
 
 What Claude Code still adds (verified by capturing the request): a one-line
@@ -28,6 +29,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,19 +51,20 @@ def child_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k in _KEEP_ENV}
 
 
-def command(job: Job, claude_bin: str = "claude") -> list[str]:
+def command(job: Job, claude_bin: str = "claude", *, system_prompt: str | None = None,
+            schema: dict | None = None, user: str | None = None) -> list[str]:
     return [
-        claude_bin, "-p", user_message(job.item),
+        claude_bin, "-p", user if user is not None else user_message(job.item),
         "--model", job.model.id,
         "--effort", job.model.effort,
-        "--system-prompt", SYSTEM_PROMPT,
+        "--system-prompt", system_prompt or SYSTEM_PROMPT,
         "--tools", "",
         "--disallowedTools", "mcp__*",
         "--safe-mode",
         "--no-session-persistence",
         "--max-turns", "2",
         "--output-format", "stream-json", "--verbose",
-        "--json-schema", json.dumps(OUTPUT_SCHEMA),
+        "--json-schema", json.dumps(schema or OUTPUT_SCHEMA),
     ]
 
 
@@ -162,8 +165,10 @@ async def run_cli(
     claude_bin = claude_bin or shutil.which("claude")
     if not claude_bin:
         raise RuntimeError("`claude` CLI not found on PATH")
-    workdir = responses.parent / "cli_workdir"  # empty cwd: nothing for the CLI to discover
-    workdir.mkdir(parents=True, exist_ok=True)
+    # Claude Code shows the working directory path (and whether it is a git
+    # repo) to the model, so use an empty, neutrally named directory outside
+    # the repo: a path like ".../onion-bench/..." would hint at satire.
+    workdir = Path(tempfile.mkdtemp(prefix="session-"))
     env = child_env()
     sem = asyncio.Semaphore(concurrency)
     out = _Writer(responses)

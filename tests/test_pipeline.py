@@ -237,3 +237,32 @@ def test_stratified_sample_keeps_mix():
     c = Counter((i["language"], i["label"]) for i in sub)
     assert c == {("en", "fake"): 15, ("en", "real"): 15, ("pt", "fake"): 5, ("pt", "real"): 5}
     assert sub == stratified_sample(items, 40, seed=0)
+
+
+def test_no_generic_fallback_when_disabled_and_container_missing():
+    html = "<html><body><h1>Headline Only</h1><ul>" + "".join(
+        f"<li>Some Other Satirical Headline Number {i} Here Today</li>" for i in range(20)) + "</ul></body></html>"
+    assert extract(html, ExtractConfig(body_selector=".entry-content", generic_fallback=False)).paragraphs == []
+    assert extract(html, ExtractConfig(body_selector=".entry-content")).method in ("trafilatura", "none")
+
+
+def test_visually_hidden_text_excluded():
+    html = ("<html><body><h1>T</h1><article><div data-testid='rich-text'><p>They <a href='#'>cut water use "
+            "<span class='visually-hidden x'>, external</span></a>now, officials said in a long statement today.</p></div></article></body></html>")
+    cfg = ExtractConfig(body_selector="article", paragraph_selector="[data-testid='rich-text'] p",
+                        exclude_selectors=[".visually-hidden"], min_words_selector=1, generic_fallback=False)
+    assert extract(html, cfg).paragraphs == ["They cut water use now, officials said in a long statement today."]
+
+
+def test_style_swap_only_touches_style():
+    from onion_bench.diagnostics import style_swap
+
+    items = [
+        {"id": "o", "source": "the_onion", "title": "Area Man Wins Big", "text": "ST. LOUIS—Area man won.\n\nMore."},
+        {"id": "b", "source": "bbc_news", "title": "Man jailed for theft", "text": "A man was jailed."},
+        {"id": "r", "source": "rtp_noticias", "title": "x", "text": "y"},
+    ]
+    o, b = style_swap(items)
+    assert o["title"] == "Area man wins big" and o["text"] == "Area man won.\n\nMore."
+    assert b["title"] == "Man Jailed for Theft" and b["text"] == "LONDON—A man was jailed."
+    assert items[0]["title"] == "Area Man Wins Big"  # originals untouched

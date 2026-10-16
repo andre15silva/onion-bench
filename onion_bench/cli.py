@@ -149,6 +149,25 @@ def cmd_report(a) -> None:
     print((out / "report.md").read_text())
 
 
+def cmd_probe(a) -> None:
+    from .diagnostics import run_probe, style_swap
+
+    cfg, items = _cfg_items(a)
+    out = Path(a.out) / "diagnostics"
+    models = [m for m in cfg.models if not a.model or m.id in a.model]
+    if a.kind == "style-swap":
+        from .cli_backend import run_cli
+        from .runner import plan_jobs
+
+        cfg.n_samples = 1
+        swapped = style_swap(items)
+        resp = out / "style_swap" / "responses.jsonl"
+        print(json.dumps(asyncio.run(run_cli(cfg, plan_jobs(cfg, swapped, resp, models=a.model), resp, concurrency=a.concurrency or 4))))
+    else:
+        asyncio.run(run_probe(a.kind, items, models, out / f"{a.kind}.jsonl", concurrency=a.concurrency or 4))
+    print(f"wrote {out}")
+
+
 def cmd_show_prompt(a) -> None:
     from .prompts import SYSTEM_PROMPT, user_message
     from .runner import load_items
@@ -231,6 +250,18 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument("--no-wait", action="store_true")
         s.add_argument("--n-boot", type=int, default=1000)
         s.set_defaults(fn=fn)
+
+    s = sub.add_parser("probe", help="diagnostics via claude-cli: self-reported cues, memorization, style swap")
+    s.add_argument("kind", choices=["cues", "memorization", "style-swap"])
+    s.add_argument("--config", default=str(EVAL_CFG))
+    s.add_argument("--dataset", default=str(DATASET))
+    s.add_argument("--out", default=str(ROOT / "results" / "main"))
+    s.add_argument("--model", action="append")
+    s.add_argument("--samples", type=int)
+    s.add_argument("--sample", type=int, default=40)
+    s.add_argument("--limit", type=int)
+    s.add_argument("--concurrency", type=int)
+    s.set_defaults(fn=cmd_probe)
 
     s = sub.add_parser("show-prompt", help="print the exact prompt for an item")
     s.add_argument("--dataset", default=str(DATASET))

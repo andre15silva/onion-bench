@@ -39,6 +39,10 @@ class ExtractConfig:
     # Same, by regex (for templated chrome such as "Follow Suffolk news on ...").
     drop_paragraph_patterns: list[str] = field(default_factory=list)
     min_words_selector: int = 15
+    # Allow trafilatura when the selectors find no text. Off for sources with
+    # reliable selectors: on pages without a body (headline-only posts) it
+    # returns sidebars, e.g. lists of the outlet's other headlines.
+    generic_fallback: bool = True
     # Fallback when the page has no machine-readable date: an element whose
     # `datetime` attribute or text holds the publication date.
     date_selector: str | None = None
@@ -169,7 +173,7 @@ def extract(html: str, cfg: ExtractConfig) -> Extracted:
         if isinstance(body, str) and len(body.split()) >= cfg.min_words_selector:
             paragraphs = [_clean(p) for p in re.split(r"\n\s*\n|\r?\n", body) if _clean(p)]
             method = "jsonld"
-        elif root is not None:
+        elif root is not None or not cfg.generic_fallback:
             # The page has the source's body container but (almost) no text,
             # e.g. a headline-only post. Generic extraction would pick up
             # sidebars and related-article lists, so keep what we have.

@@ -26,8 +26,9 @@ sources:
       - {type: rss, url: "https://theonion.com/feed/"}
     url_exclude: ["/video/", "/quiz/", "/horoscopes", "/tag/", "/category/"]
     # Non-news formats (person-on-the-street quotes, op-eds, charts, games).
-    exclude_sections: ["American Voices", "Opinion", "Editorial", "Point/Counterpoint", "Statshot", "Horoscopes", "Video", "Quiz", "Games", "Infographic", "Puzzle", "Cartoon", "Weddings", "Obituaries"]
+    exclude_sections: ["American Voices", "Commentary", "Magazine", "OGN", "Opinion", "Editorial", "Point/Counterpoint", "Statshot", "Horoscopes", "Video", "Quiz", "Games", "Infographic", "Puzzle", "Cartoon", "Weddings", "Obituaries"]
     extract:
+      generic_fallback: false
       body_selector: ".entry-content"
       exclude_selectors: [".wp-block-embed", "figure", ".newsletter", "form", "aside", ".sharedaddy", "script", "style"]
     leak_patterns:
@@ -49,6 +50,7 @@ sources:
     # Columns, cartoons and readers' letters are not in news-article form.
     exclude_sections: ["Crónicas", "Cartoon", "Correio dos Leitores", "Opinião"]
     extract:
+      generic_fallback: false
       body_selector: ".td-post-content"
       exclude_selectors: ["figure", ".td-a-ad", ".td-g-rec", "script", "style", ".sharedaddy"]
     leak_patterns:
@@ -90,7 +92,10 @@ sources:
       - {type: rss, url: "https://feeds.bbci.co.uk/news/rss.xml"}
     url_include: ["^https://www\\.bbc\\.co\\.uk/news/articles/[a-z0-9]+$"]
     extract:
+      generic_fallback: false
       body_selector: "article"
+      # Screen-reader-only text (e.g. ", external" after links) is not part of the visible article.
+      exclude_selectors: [".visually-hidden", "[class*='VisuallyHidden']"]
       paragraph_selector: "[data-testid='rich-text'] p, [data-testid='rich-text'] h2, [data-testid='rich-text'] li"
       # Regional-page footers and promo lines (page chrome, not reporting).
       drop_paragraph_patterns:
@@ -118,7 +123,10 @@ sources:
       - {type: rss, url: "https://www.cbsnews.com/latest/rss/main"}
     url_include: ["^https://www\\.cbsnews\\.com/news/"]
     url_exclude: ["/live-updates/", "/pictures/", "/essentials/"]
+    # Interview transcripts and affiliate personal-finance content are not news reports.
+    exclude_sections: ["Transcripts", "Managing Your Money"]
     extract:
+      generic_fallback: false
       body_selector: "section.content__body"
       exclude_selectors: ["section.content__body--footer", ".content__tags", "figure", ".embed", "aside", "script", "style", ".ad-container", ".related-content"]
       drop_paragraph_patterns: ["^Watch CBS News$", "^\\(\\d+:\\d+\\)$"]
@@ -138,6 +146,7 @@ sources:
       - {type: rss, url: "https://www.rtp.pt/noticias/rss"}
     url_include: ["_n\\d+$"]  # _n = text news; _v = video, _d = live/other
     extract:
+      generic_fallback: false
       body_selector: ".article-body"
       lead_selector: ".article-lead"
       paragraph_selector: "p"
@@ -160,6 +169,7 @@ sources:
     url_include: ["^https://observador\\.pt/20\\d\\d/\\d\\d/\\d\\d/"]
     url_exclude: ["/liveblogs/", "/programas/", "/opiniao/", "/especiais/"]
     extract:
+      generic_fallback: false
       body_selector: ".article-body-content"
       exclude_selectors: ["blockquote.wp-embedded-content", "figure", "script", "style", ".obs-ad-placeholder", ".article-related", ".related-articles", ".article-subscribe-cta", "aside"]
       drop_paragraphs: ["Acompanhe o nosso liveblog de política nacional"]
