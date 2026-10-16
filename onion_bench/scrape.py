@@ -97,12 +97,12 @@ def discover_candidates(fetcher: Fetcher, src: dict, since: datetime) -> list[di
             else:
                 raise ValueError(f"unknown discovery type {d['type']}")
         except (BlockedError, RobotsDisallowed) as e:
-            log.error("[%s] discovery via %s stopped: %s", src["name"], d["url"], e)
+            log.error("[%s] discovery via %s stopped: %s", src["name"], d.get("url") or f"r/{d.get('subreddit')}", e)
             continue
         except FetchError as e:
-            log.warning("[%s] discovery via %s failed: %s", src["name"], d["url"], e)
+            log.warning("[%s] discovery via %s failed: %s", src["name"], d.get("url") or f"r/{d.get('subreddit')}", e)
             continue
-        log.info("[%s] %s -> %d urls", src["name"], d["url"], len(found))
+        log.info("[%s] %s -> %d urls", src["name"], d.get("url") or f"r/{d.get('subreddit')}", len(found))
         for c in found:
             u = canonical_url(c.url)
             if not _url_ok(u, src):
