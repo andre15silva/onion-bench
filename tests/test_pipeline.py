@@ -168,3 +168,21 @@ def test_no_generic_fallback_when_body_container_is_empty():
         f"<li><a href='/x{i}'>Some Other Satirical Headline Number {i} Here</a></li>" for i in range(20)) + "</ul></body></html>"
     ex = extract(html, ExtractConfig(body_selector=".body"))
     assert ex.paragraphs == [] and ex.method == "selector"
+
+
+def test_balance_items_per_language():
+    from onion_bench.runner import balance_items
+
+    items = (
+        [{"id": f"f{i}", "language": "pt", "label": "fake", "subset": "satire", "source": "if"} for i in range(3)]
+        + [{"id": f"r{i}", "language": "pt", "label": "real", "subset": "real_control", "source": "rtp" if i % 2 else "obs"} for i in range(10)]
+        + [{"id": "imp", "language": "pt", "label": "real", "subset": "real_implausible", "source": "x"}]
+        + [{"id": f"e{i}", "language": "en", "label": "fake", "subset": "satire", "source": "onion"} for i in range(2)]
+    )
+    out = balance_items(items, seed=0)
+    pt = [i for i in out if i["language"] == "pt"]
+    assert sum(i["label"] == "fake" for i in pt) == 3 and sum(i["label"] == "real" for i in pt) == 3
+    assert any(i["id"] == "imp" for i in out)  # implausible kept first
+    assert {i["source"] for i in pt if i["label"] == "real"} == {"x", "obs", "rtp"}  # round-robin
+    assert not [i for i in out if i["language"] == "en"]  # no real en -> nothing to compare
+    assert out == balance_items(items, seed=0)

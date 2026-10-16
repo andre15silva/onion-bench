@@ -98,12 +98,33 @@ sources:
         - "^Follow .* on (?:BBC|Facebook|X|Instagram)"
         - "^(?:You can )?[Ff]ollow BBC "
         - "^Get in touch with "
-        - "^Listen to .* on BBC Sounds"
+        - "^Listen to .* on (?:BBC )?Sounds"
+        - "^Send your story ideas? to"
         - "^(?:Watch|Listen|Related|More on this story|Sign up for)\\b[^.]{0,80}:$"
         - "on BBC iPlayer\\.?$"
     leak_patterns:
       - "\\bBBC\\b"
       - {pattern: "bbc\\.co", ignore_case: true}
+
+  - name: cbs_news
+    display_name: CBS News
+    homepage: https://www.cbsnews.com
+    language: en
+    label: real
+    subset: real_control
+    max_items: 300
+    discovery:
+      - {type: sitemap, url: "https://www.cbsnews.com/xml-sitemap/index.xml", child_include: "/article-"}
+      - {type: rss, url: "https://www.cbsnews.com/latest/rss/main"}
+    url_include: ["^https://www\\.cbsnews\\.com/news/"]
+    url_exclude: ["/live-updates/", "/pictures/", "/essentials/"]
+    extract:
+      body_selector: "section.content__body"
+      exclude_selectors: ["section.content__body--footer", ".content__tags", "figure", ".embed", "aside", "script", "style", ".ad-container", ".related-content"]
+      drop_paragraph_patterns: ["^Watch CBS News$", "^\\(\\d+:\\d+\\)$"]
+    leak_patterns:
+      - "\\bCBS\\b"
+      - {pattern: "cbsnews\\.com", ignore_case: true}
 
   - name: rtp_noticias
     display_name: RTP Notícias

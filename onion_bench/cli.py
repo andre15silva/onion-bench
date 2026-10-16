@@ -86,12 +86,14 @@ def cmd_review_implausible(a) -> None:
 
 
 def _cfg_items(a):
-    from .runner import EvalConfig, load_items
+    from .runner import EvalConfig, balance_items, load_items
 
     cfg = EvalConfig.load(Path(a.config))
     if a.samples:
         cfg.n_samples = a.samples
     items = load_items(Path(a.dataset), include_leak_flagged=cfg.include_leak_flagged)
+    if cfg.balance_per_language:
+        items = balance_items(items, seed=cfg.seed)
     if a.limit:
         items = items[: a.limit]
     return cfg, items

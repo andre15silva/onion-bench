@@ -41,6 +41,10 @@ class EvalConfig:
     max_tokens: int = 16000
     thinking_display: str = "summarized"
     include_leak_flagged: bool = False
+    # Per language, downsample the majority class to the size of the minority
+    # class (deterministic), so that language does not predict the label.
+    balance_per_language: bool = True
+    seed: int = 0
     concurrency: int = 8
 
     @classmethod
@@ -75,6 +79,41 @@ class Job:
 def load_items(dataset: Path, include_leak_flagged: bool = False) -> list[dict]:
     rows = [json.loads(l) for l in dataset.read_text(encoding="utf-8").splitlines() if l.strip()]
     return [r for r in rows if include_leak_flagged or r["eval_eligible"]]
+
+
+def balance_items(items: list[dict], seed: int = 0) -> list[dict]:
+    """Per language, keep min(n_fake, n_real) items of each label. Within a
+    label, real_implausible items take up to half the slots, then sources are
+    taken round-robin (random order within a source) so no outlet dominates."""
+    import random
+    from collections import defaultdict
+
+    rng = random.Random(seed)
+    by_lang: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for it in sorted(items, key=lambda r: r["id"]):
+        by_lang[it["language"]][it["label"]].append(it)
+    keep: list[dict] = []
+    for groups in by_lang.values():
+        n = min(len(groups["fake"]), len(groups["real"]))
+        for label_items in (groups["fake"], groups["real"]):
+            priority = [i for i in label_items if i["subset"] == "real_implausible"]
+            rest = [i for i in label_items if i["subset"] != "real_implausible"]
+            rng.shuffle(priority)
+            by_src: dict[str, list[dict]] = defaultdict(list)
+            for i in rest:
+                by_src[i["source"]].append(i)
+            for v in by_src.values():
+                rng.shuffle(v)
+            # Implausible-real items fill up to half the real slots first, so
+            # the control pool is never crowded out entirely.
+            ordered = priority[: n // 2]
+            while any(by_src.values()):
+                for src in sorted(by_src):
+                    if by_src[src]:
+                        ordered.append(by_src[src].pop())
+            keep.extend((ordered + priority[n // 2 :])[:n])
+    ids = {i["id"] for i in keep}
+    return [it for it in items if it["id"] in ids]
 
 
 def after_cutoff(item: dict, spec: ModelSpec) -> bool:

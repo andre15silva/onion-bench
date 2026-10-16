@@ -28,6 +28,7 @@ _BLOCK_MARKERS = (
     "cf-chl-",  # Cloudflare challenge
     "challenges.cloudflare.com",
     "Please enable JS and disable any ad blocker",
+    "errors.edgesuite.net",  # Akamai "Access Denied"
 )
 
 

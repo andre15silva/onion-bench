@@ -22,4 +22,9 @@ thinking_display: summarized
 # Only items with eval_eligible=true (no outlet name found in title/text).
 include_leak_flagged: false
 
+# Per language, downsample the majority label to the minority label's size so
+# that language (or a source-heavy language) cannot stand in for the label.
+balance_per_language: true
+seed: 0
+
 concurrency: 8

@@ -15,13 +15,20 @@ June 2026 for both, so the collection window starts **2026-07-01**).
 | subset | label | sources | language |
 |---|---|---|---|
 | `satire` | fake | The Onion, Imprensa Falsa, Inimigo Público (Expresso)¹ | en, pt |
-| `real_control` | real | BBC News, RTP Notícias, Observador, Notícias ao Minuto | en, pt |
+| `real_control` | real | BBC News, CBS News, RTP Notícias, Observador, Notícias ao Minuto | en, pt |
 | `real_implausible` | real | Oddity Central, r/nottheonion², LLM-scored and human-reviewed picks from the control pool | en, pt |
 
 ¹ expresso.pt sits behind DataDome bot protection, and its robots.txt disallows AI
 agents. The scraper does not get around either, so Inimigo Público has to be
 brought in by hand (see below).
 ² Optional. Needs Reddit API credentials.
+
+Sources considered and not used: The Guardian, NPR, AP, France 24, Sapo and
+Expresso, because their robots.txt disallows AI user agents; Sky News, Público, JN and
+SIC, which block automated requests; Wikinews, which closed in May 2026 and so has
+nothing after the cutoff; The Mirror's "weird news", which is not curated
+enough. The scraper checks robots.txt for every token passed with
+`--robots-agent` (the runs here used `onion-bench` and `Claude-User`).
 
 ### What the model sees, and nothing else
 
@@ -140,9 +147,10 @@ Scraped text is not committed to this repo (`data/raw`, `data/dataset` and
 ## Known confounds
 
 - **Format and length:** Onion articles are short and use datelines ("ST. LOUIS—").
-  BBC and RTP articles are long. A model could separate them on style alone. Use
-  the per-source rates and the implausible-real subset, and consider
-  length-matched analyses.
+  BBC and RTP articles are long. The Onion writes Title Case Headlines, while BBC uses
+  sentence case. A model could separate them on style alone. Use the per-source
+  rates and the implausible-real subset, and consider length-matched analyses or
+  real outlets with matching house styles.
 - **Language balance:** Portuguese satire is scarce after the cutoff.
   Imprensa Falsa publishes a few pieces a month, and Inimigo Público needs a manual import.
 - **Oddity Central** retells stories first reported elsewhere. They are real
