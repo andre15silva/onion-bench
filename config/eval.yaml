@@ -28,3 +28,7 @@ balance_per_language: true
 seed: 0
 
 concurrency: 8
+
+# What the model sees: full (headline + body), headline_lead (headline + the
+# body's opening sentences, >= 40 words, verbatim) or headline_only.
+prompt_variant: full

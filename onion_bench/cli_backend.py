@@ -34,7 +34,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .prompts import OUTPUT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT, user_message
+from .prompts import OUTPUT_SCHEMA, PROMPT_VERSION, user_message
+from .prompts import system_prompt as _system_prompt
 from .runner import EvalConfig, Job, _Writer, error_record
 
 log = logging.getLogger(__name__)
@@ -51,13 +52,13 @@ def child_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k in _KEEP_ENV}
 
 
-def command(job: Job, claude_bin: str = "claude", *, system_prompt: str | None = None,
+def command(job: Job, claude_bin: str = "claude", *, system: str | None = None,
             schema: dict | None = None, user: str | None = None) -> list[str]:
     return [
-        claude_bin, "-p", user if user is not None else user_message(job.item),
+        claude_bin, "-p", user if user is not None else user_message(job.item, job.variant),
         "--model", job.model.id,
         "--effort", job.model.effort,
-        "--system-prompt", system_prompt or SYSTEM_PROMPT,
+        "--system-prompt", system or _system_prompt(job.variant),
         "--tools", "",
         "--disallowedTools", "mcp__*",
         "--safe-mode",
@@ -105,7 +106,7 @@ def parse_stream(job: Job, lines: list[str], allow_api_key: bool = False) -> dic
             result = e
     base = {
         "model": job.model.id, "item_id": job.item["id"], "sample": job.sample,
-        "prompt_version": PROMPT_VERSION, "effort": job.model.effort, "backend": "claude_cli",
+        "prompt_version": PROMPT_VERSION, "prompt_variant": job.variant, "effort": job.model.effort, "backend": "claude_cli",
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     if result is None:

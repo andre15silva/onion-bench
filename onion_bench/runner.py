@@ -22,7 +22,7 @@ from pathlib import Path
 import anthropic
 import yaml
 
-from .prompts import OUTPUT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT, parse_answer, user_message
+from .prompts import OUTPUT_SCHEMA, PROMPT_VERSION, parse_answer, system_prompt, user_message
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,8 @@ class EvalConfig:
     balance_per_language: bool = True
     seed: int = 0
     concurrency: int = 8
+    # full | headline_lead | headline_only (see prompts.py)
+    prompt_variant: str = "full"
 
     @classmethod
     def load(cls, path: Path) -> "EvalConfig":
@@ -69,6 +71,7 @@ class Job:
     model: ModelSpec
     item: dict = field(hash=False, compare=False)
     sample: int = 0
+    variant: str = "full"
 
     @property
     def key(self) -> tuple[str, str, int]:
@@ -169,6 +172,10 @@ def done_keys(responses: Path) -> set[tuple[str, str, int]]:
 
 
 def plan_jobs(cfg: EvalConfig, items: list[dict], responses: Path, models: list[str] | None = None) -> list[Job]:
+    if responses.exists():
+        seen = {json.loads(l).get("prompt_variant", "full") for l in responses.read_text(encoding="utf-8").splitlines() if l.strip()}
+        if seen - {cfg.prompt_variant}:
+            raise ValueError(f"{responses} holds prompt variant(s) {sorted(seen)}; use a separate --out for {cfg.prompt_variant!r}")
     done = done_keys(responses)
     jobs = []
     for spec in cfg.models:
@@ -178,7 +185,7 @@ def plan_jobs(cfg: EvalConfig, items: list[dict], responses: Path, models: list[
             if not after_cutoff(it, spec):
                 continue
             for k in range(cfg.n_samples):
-                j = Job(spec, it, k)
+                j = Job(spec, it, k, cfg.prompt_variant)
                 if j.key not in done:
                     jobs.append(j)
     return jobs
@@ -188,8 +195,8 @@ def request_params(cfg: EvalConfig, job: Job) -> dict:
     return {
         "model": job.model.id,
         "max_tokens": cfg.max_tokens,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_message(job.item)}],
+        "system": system_prompt(cfg.prompt_variant),
+        "messages": [{"role": "user", "content": user_message(job.item, cfg.prompt_variant)}],
         "thinking": {"type": "adaptive", "display": cfg.thinking_display},
         "output_config": {"effort": job.model.effort, "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
     }
@@ -210,6 +217,7 @@ def record_from_message(job: Job, msg, latency_s: float | None) -> dict:
         "item_id": job.item["id"],
         "sample": job.sample,
         "prompt_version": PROMPT_VERSION,
+        "prompt_variant": job.variant,
         "effort": job.model.effort,
         "status": status,
         "verdict": verdict,
@@ -229,7 +237,7 @@ def record_from_message(job: Job, msg, latency_s: float | None) -> dict:
 def error_record(job: Job, status: str, err: str) -> dict:
     return {
         "model": job.model.id, "item_id": job.item["id"], "sample": job.sample,
-        "prompt_version": PROMPT_VERSION, "effort": job.model.effort,
+        "prompt_version": PROMPT_VERSION, "prompt_variant": job.variant, "effort": job.model.effort,
         "status": status, "verdict": None, "p_fake": None, "error": err,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }

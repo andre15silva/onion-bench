@@ -89,6 +89,8 @@ def _cfg_items(a):
     from .runner import EvalConfig, balance_items, load_items, stratified_sample
 
     cfg = EvalConfig.load(Path(a.config))
+    if getattr(a, "prompt_variant", None):
+        cfg.prompt_variant = a.prompt_variant
     if a.samples:
         cfg.n_samples = a.samples
     items = load_items(Path(a.dataset), include_leak_flagged=cfg.include_leak_flagged)
@@ -168,13 +170,22 @@ def cmd_probe(a) -> None:
     print(f"wrote {out}")
 
 
+def cmd_compare(a) -> None:
+    from .report import compare_runs
+
+    md = compare_runs([Path(d) for d in a.runs])
+    if a.out:
+        Path(a.out).write_text(md)
+    print(md)
+
+
 def cmd_show_prompt(a) -> None:
-    from .prompts import SYSTEM_PROMPT, user_message
+    from .prompts import system_prompt, user_message
     from .runner import load_items
 
     items = load_items(Path(a.dataset), include_leak_flagged=True)
     it = next(i for i in items if i["id"] == a.id) if a.id else items[0]
-    print("=== SYSTEM ===\n" + SYSTEM_PROMPT + "\n\n=== USER ===\n" + user_message(it))
+    print("=== SYSTEM ===\n" + system_prompt(a.prompt_variant) + "\n\n=== USER ===\n" + user_message(it, a.prompt_variant))
 
 
 def cmd_push_hub(a) -> None:
@@ -244,6 +255,8 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument("--backend", choices=["api", "claude-cli"], default="api",
                        help="api: Anthropic API key; claude-cli: `claude -p` on a Pro/Max subscription")
         s.add_argument("--concurrency", type=int)
+        s.add_argument("--prompt-variant", choices=["full", "headline_lead", "headline_only"],
+                       help="what the model sees (default from config: full)")
         s.add_argument("--pause-at", type=float, default=0.9,
                        help="claude-cli: pause when the plan's usage window reaches this utilization")
         s.add_argument("--dry-run", action="store_true")
@@ -263,9 +276,15 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--concurrency", type=int)
     s.set_defaults(fn=cmd_probe)
 
+    s = sub.add_parser("compare", help="side-by-side metrics of several report directories")
+    s.add_argument("runs", nargs="+", help="directories containing metrics.json")
+    s.add_argument("--out", help="write the markdown table here")
+    s.set_defaults(fn=cmd_compare)
+
     s = sub.add_parser("show-prompt", help="print the exact prompt for an item")
     s.add_argument("--dataset", default=str(DATASET))
     s.add_argument("--id")
+    s.add_argument("--prompt-variant", choices=["full", "headline_lead", "headline_only"], default="full")
     s.set_defaults(fn=cmd_show_prompt)
 
     s = sub.add_parser("push-hub", help="upload the dataset to the Hugging Face Hub")

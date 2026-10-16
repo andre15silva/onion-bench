@@ -82,8 +82,21 @@ Hard negatives come from three routes, and each item records its route in
 - Runs are resumable. Responses are appended to `results/<run>/responses.jsonl`,
   keyed by (model, item, sample).
 
-The prompt is in `onion_bench/prompts.py` (`PROMPT_VERSION` is stored with
-every response). `onion-bench show-prompt --id <item>` prints the exact prompt.
+The prompt is in `onion_bench/prompts.py` (`PROMPT_VERSION` and `prompt_variant` are stored with
+every response). `onion-bench show-prompt --id <item> [--prompt-variant ...]` prints the exact prompt.
+
+**Prompt variants** (`--prompt-variant`, one results directory per variant):
+
+| variant | the model sees |
+|---|---|
+| `full` | headline + full body text |
+| `headline_lead` | headline + the body's opening: whole sentences from the start until ≥ 40 words, verbatim, built the same way for every source |
+| `headline_only` | headline alone |
+
+Publishers' own summaries (`og:description`) are deliberately not used. They differ by
+outlet (The Onion: a truncated first sentence ending in "…"; BBC, CBS and Observador:
+separately written standfirsts; Notícias ao Minuto: a lead cut off with "..."), so they
+would be a source tell. `onion-bench compare <run dirs>` tabulates runs side by side.
 
 ### Running on a Claude Pro/Max subscription (`--backend claude-cli`)
 

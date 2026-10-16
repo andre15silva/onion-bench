@@ -266,3 +266,48 @@ def test_style_swap_only_touches_style():
     assert o["title"] == "Area man wins big" and o["text"] == "Area man won.\n\nMore."
     assert b["title"] == "Man Jailed for Theft" and b["text"] == "LONDON—A man was jailed."
     assert items[0]["title"] == "Area Man Wins Big"  # originals untouched
+
+
+def test_lead_whole_sentences_verbatim():
+    from onion_bench.prompts import lead
+
+    text = ("WASHINGTON—Sen. John Q. Public said Tuesday the U.S. would act. He added more words here to pad it out a bit."
+            "\n\nSecond paragraph sentence one. Sentence two.")
+    assert lead(text, min_words=5) == "WASHINGTON—Sen. John Q. Public said Tuesday the U.S. would act."
+    assert lead(text, min_words=25) == text.split("\n\n")[0] + "\n\nSecond paragraph sentence one."
+    assert lead("“Quoted.” Then more.", min_words=1) == "“Quoted.”"
+    # every lead is a verbatim prefix of the text (modulo the paragraph join)
+    import json
+    rows = [json.loads(l) for l in open("data/dataset/onion_bench.jsonl")][:300] if __import__("os").path.exists("data/dataset/onion_bench.jsonl") else []
+    for r in rows:
+        assert r["text"].startswith(lead(r["text"]))
+
+
+def test_prompt_variants():
+    from onion_bench.prompts import VARIANTS, system_prompt, user_message
+
+    it = {"title": "Headline", "text": "One sentence here. " * 30}
+    assert "<article>" in user_message(it, "full") and "<article_opening>" in user_message(it, "headline_lead")
+    assert user_message(it, "headline_only") == "<headline>\nHeadline\n</headline>"
+    assert all(system_prompt(v) != system_prompt("full") for v in VARIANTS if v != "full")
+    with pytest.raises(ValueError):
+        user_message(it, "nope")
+
+
+def test_variant_is_recorded_and_not_mixed(tmp_path):
+    from onion_bench.cli_backend import command
+    from onion_bench.runner import Job
+
+    items = [{"id": "x1", "title": "T1", "text": "Sentence one is here. " * 20, "published_at": "2026-07-02T00:00:00+00:00"}]
+    cfg = EvalConfig(models=[ModelSpec("m-a", date(2026, 6, 30))], n_samples=1, prompt_variant="headline_only")
+    out = tmp_path / "responses.jsonl"
+    jobs = plan_jobs(cfg, items, out)
+    assert jobs[0].variant == "headline_only"
+    cmd = command(jobs[0])
+    assert cmd[cmd.index("-p") + 1] == "<headline>\nT1\n</headline>"
+    assert "shown the headline" in cmd[cmd.index("--system-prompt") + 1]
+    asyncio.run(run_async(cfg, jobs, out, client=SimpleNamespace(messages=FakeMessages())))
+    assert json.loads(out.read_text().splitlines()[0])["prompt_variant"] == "headline_only"
+    cfg.prompt_variant = "full"
+    with pytest.raises(ValueError):
+        plan_jobs(cfg, items, out)

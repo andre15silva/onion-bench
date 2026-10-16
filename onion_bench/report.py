@@ -45,7 +45,11 @@ def build_report(cfg: EvalConfig, items: list[dict], responses_path: Path, out_d
         if r["status"] not in RETRYABLE:  # transient failures / bad setups are not outcomes
             per_model_resp[r["model"]].append(r)
 
-    out: dict = {"models": {}, "comparisons": {}}
+    out: dict = {
+        "models": {}, "comparisons": {},
+        "prompt_variants": sorted({r.get("prompt_variant", "full") for r in responses}),
+        "backends": sorted({r.get("backend", "api") for r in responses}),
+    }
     grouped = {}
     for spec in cfg.models:
         if spec.id not in per_model_resp:
@@ -87,7 +91,7 @@ def build_report(cfg: EvalConfig, items: list[dict], responses_path: Path, out_d
 
 
 def render_markdown(out: dict, items: list[dict]) -> str:
-    L = ["# onion-bench results", ""]
+    L = ["# onion-bench results", "", f"Prompt variant: {', '.join(out.get('prompt_variants', ['full']))} · backend: {', '.join(out.get('backends', ['api']))}", ""]
     counts = defaultdict(int)
     for it in items:
         counts[(it["subset"], it["language"])] += 1
@@ -138,4 +142,35 @@ def render_markdown(out: dict, items: list[dict]) -> str:
                     f"| {pair} | {c['n_items']} | {_f(c['mcc_a'])} | {_f(c['mcc_b'])} | {_f(c['mcc_diff'])} "
                     f"[{_f(c['mcc_diff_ci95'][0], 2)}, {_f(c['mcc_diff_ci95'][1], 2)}] | {_f(c['mcnemar_p'], 4)} |"
                 )
+    return "\n".join(L) + "\n"
+
+
+def compare_runs(run_dirs: list[Path]) -> str:
+    """Side-by-side table of several runs' metrics.json (e.g. prompt variants)."""
+    runs = [(d, json.loads((d / "metrics.json").read_text())) for d in run_dirs]
+    models = sorted({m for _, r in runs for m in r["models"]})
+    L = ["# Run comparison", ""]
+    for view in ("all", "satire_vs_real_control", "satire_vs_real_implausible"):
+        L += [f"## {view} (call level, 95% CI)", "",
+              "| model | run | variant | MCC | bal. acc | recall (fake) | specificity (real) | AUROC | Brier |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        for m in models:
+            for d, r in runs:
+                v = r["models"].get(m, {}).get("views", {}).get(view)
+                if not v:
+                    continue
+                c = v["call"]
+                L.append(
+                    f"| {m} | {d.name} | {', '.join(r.get('prompt_variants', ['full']))} | {_f(c['mcc'])}{_ci(v, 'call.mcc')} | "
+                    f"{_f(c['balanced_accuracy'])} | {_f(c['recall'])}{_ci(v, 'call.recall')} | "
+                    f"{_f(c['specificity'])}{_ci(v, 'call.specificity')} | {_f(c.get('auroc'))} | {_f(c.get('brier'))} |"
+                )
+        L.append("")
+    L += ["## Judged-fake rate per source (calls)", "", "| model | source | " + " | ".join(d.name for d, _ in runs) + " |",
+          "|---|---|" + "---|" * len(runs)]
+    for m in models:
+        srcs = sorted({s for _, r in runs for s in r["models"].get(m, {}).get("per_source", {})})
+        for s in srcs:
+            vals = [r["models"].get(m, {}).get("per_source", {}).get(s, {}).get("judged_fake_rate_calls") for _, r in runs]
+            L.append(f"| {m} | {s} | " + " | ".join(_f(x) for x in vals) + " |")
     return "\n".join(L) + "\n"

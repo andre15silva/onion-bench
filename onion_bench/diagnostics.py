@@ -50,7 +50,7 @@ async def _call(sem, claude_bin, env, job, system, schema, user) -> dict:
     async with sem:
         wd = tempfile.mkdtemp(prefix="session-")
         proc = await asyncio.create_subprocess_exec(
-            *command(job, claude_bin, system_prompt=system, schema=schema, user=user), cwd=wd, env=env,
+            *command(job, claude_bin, system=system, schema=schema, user=user), cwd=wd, env=env,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         out, _ = await asyncio.wait_for(proc.communicate(), 900)
