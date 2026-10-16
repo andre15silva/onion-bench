@@ -25,16 +25,49 @@ def _ci(res: dict, key: str) -> str:
     return f" [{_f(ci[0], 2)}, {_f(ci[1], 2)}]" if ci else ""
 
 
+FAKE_SUBSETS = ("satire", "misinformation", "counterfactual")
+REAL_SUBSETS = ("real_control", "real_implausible", "fact_checked_true")
+
+
 def views(items: list[dict]) -> dict[str, list[str]]:
+    """all, per language, per sourcing mode, and every fake subset against every
+    real subset present (e.g. counterfactual_vs_real_control)."""
     v: dict[str, list[str]] = defaultdict(list)
+    present = {it["subset"] for it in items}
     for it in items:
         v["all"].append(it["id"])
         v[f"lang={it['language']}"].append(it["id"])
-        if it["subset"] in ("satire", "real_control"):
-            v["satire_vs_real_control"].append(it["id"])
-        if it["subset"] in ("satire", "real_implausible"):
-            v["satire_vs_real_implausible"].append(it["id"])
+        v[f"mode={it.get('sourcing_mode', 'publisher_scrape')}"].append(it["id"])
+        for f in FAKE_SUBSETS:
+            for r in REAL_SUBSETS:
+                if f in present and r in present and it["subset"] in (f, r):
+                    v[f"{f}_vs_{r}"].append(it["id"])
     return dict(v)
+
+
+def counterfactual_pairs(items: list[dict], g: dict[str, dict]) -> dict | None:
+    """Paired view: each counterfactual vs its own base article (when both are
+    in the eval). Reports how often the edited version gets a higher mean
+    p_fake than the original, and accuracy on each side."""
+    by_id = {it["id"]: it for it in items}
+    pairs = []
+    for it in items:
+        base = (it.get("provenance") or {}).get("base_id")
+        if it["subset"] == "counterfactual" and base in by_id and it["id"] in g and base in g:
+            a, b = g[it["id"]], g[base]
+            if a["votes"] and b["votes"]:
+                pairs.append((float(np.mean(a["p"])), float(np.mean(b["p"])), float(np.mean(a["votes"])), float(np.mean(b["votes"]))))
+    if not pairs:
+        return None
+    return {
+        "n_pairs": len(pairs),
+        "edited_rated_more_fake": float(np.mean([pe > po for pe, po, _, _ in pairs])),
+        "ties": float(np.mean([pe == po for pe, po, _, _ in pairs])),
+        "mean_p_fake_edited": float(np.mean([p[0] for p in pairs])),
+        "mean_p_fake_original": float(np.mean([p[1] for p in pairs])),
+        "edited_judged_fake_rate": float(np.mean([p[2] for p in pairs])),
+        "original_judged_fake_rate": float(np.mean([p[3] for p in pairs])),
+    }
 
 
 def build_report(cfg: EvalConfig, items: list[dict], responses_path: Path, out_dir: Path, n_boot: int = 1000) -> dict:
@@ -59,7 +92,9 @@ def build_report(cfg: EvalConfig, items: list[dict], responses_path: Path, out_d
         grouped[spec.id] = g
         mres = {"knowledge_cutoff": str(spec.knowledge_cutoff), "effort": spec.effort, "views": {}, "per_source": {}}
         for name, ids in views(model_items).items():
-            mres["views"][name] = evaluate(g, ids, n_boot=n_boot if name == "all" or name.startswith("satire_vs") else 0)
+            boot = name == "all" or "_vs_" in name
+            mres["views"][name] = evaluate(g, ids, n_boot=n_boot if boot else 0)
+        mres["counterfactual_pairs"] = counterfactual_pairs(model_items, g)
         src_ids: dict[str, list[str]] = defaultdict(list)
         for it in model_items:
             src_ids[(it["source"], it["subset"], it["label"])].append(it["id"])
@@ -133,6 +168,11 @@ def render_markdown(out: dict, items: list[dict]) -> str:
             L.append(
                 f"| {src} | {s['subset']} | {s['label']} | {s['n_items']} | {_f(s['judged_fake_rate_calls'])} | {_f(s['judged_fake_rate_items'])} | {s['invalid']} |"
             )
+        cp = m.get("counterfactual_pairs")
+        if cp:
+            L += ["", f"Counterfactual pairs (edited vs its own original, n={cp['n_pairs']}): edited rated more likely fake in "
+                  f"{_f(cp['edited_rated_more_fake'])} of pairs (ties {_f(cp['ties'])}); mean p_fake {_f(cp['mean_p_fake_edited'])} vs "
+                  f"{_f(cp['mean_p_fake_original'])}; judged fake {_f(cp['edited_judged_fake_rate'])} vs {_f(cp['original_judged_fake_rate'])}."]
         L.append("")
     if out["comparisons"]:
         L += ["## Paired comparison (item-majority, common items)", "", "| pair | n | MCC A | MCC B | Δ [95% CI] | McNemar p |", "|---|---|---|---|---|---|"]
@@ -150,7 +190,8 @@ def compare_runs(run_dirs: list[Path]) -> str:
     runs = [(d, json.loads((d / "metrics.json").read_text())) for d in run_dirs]
     models = sorted({m for _, r in runs for m in r["models"]})
     L = ["# Run comparison", ""]
-    for view in ("all", "satire_vs_real_control", "satire_vs_real_implausible"):
+    present_views = sorted({v for _, r in runs for m in r["models"].values() for v in m.get("views", {}) if "_vs_" in v})
+    for view in ["all"] + present_views:
         L += [f"## {view} (call level, 95% CI)", "",
               "| model | run | variant | MCC | bal. acc | recall (fake) | specificity (real) | AUROC | Brier |",
               "|---|---|---|---|---|---|---|---|---|"]

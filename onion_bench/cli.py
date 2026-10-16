@@ -31,7 +31,7 @@ def cmd_scrape(a) -> None:
     from .scrape import load_sources, scrape_source
 
     sources = load_sources()
-    names = a.source or [s["name"] for s in sources if s["name"] not in ("inimigo_publico", "r_nottheonion")]
+    names = a.source or [s["name"] for s in sources if s["name"] not in ("inimigo_publico", "r_nottheonion") and s.get("kind") != "counterfactual"]
     fetcher = Fetcher(
         user_agent=a.user_agent or DEFAULT_USER_AGENT,
         robots_agents=tuple(a.robots_agent or ["onion-bench"]),
@@ -49,7 +49,9 @@ def cmd_reextract(a) -> None:
 
     for s in load_sources():
         if not a.source or s["name"] in a.source:
-            print(s["name"], json.dumps(reextract(s, RAW, CACHE)))
+            if s.get("kind") == "counterfactual":
+                continue  # generated, not scraped: nothing to re-extract
+            print(s["name"], json.dumps(reextract(s, RAW, CACHE, since=_dt(DEFAULT_SINCE))))
 
 
 def cmd_import_html(a) -> None:
@@ -190,6 +192,25 @@ def cmd_compare(a) -> None:
     print(md)
 
 
+def cmd_make_counterfactuals(a) -> None:
+    from .counterfactual import generate, select_bases
+    from .runner import load_items
+
+    items = load_items(Path(a.dataset))
+    bases = select_bases(items, {"en": a.en, "pt": a.pt}, seed=a.seed)
+    print(f"{len(bases)} base articles; generating with {a.model} -> {RAW / 'counterfactual.jsonl'}")
+    if a.dry_run:
+        return
+    print(json.dumps(asyncio.run(generate(bases, RAW / "counterfactual.jsonl", model=a.model, effort=a.effort, concurrency=a.concurrency))))
+    print("re-run `onion-bench assemble`; optionally `onion-bench review-counterfactuals` first")
+
+
+def cmd_review_counterfactuals(a) -> None:
+    from .counterfactual import review
+
+    review(RAW / "counterfactual.jsonl")
+
+
 def cmd_show_prompt(a) -> None:
     from .prompts import system_prompt, user_message
     from .runner import load_items
@@ -298,6 +319,20 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("runs", nargs="+", help="directories containing metrics.json")
     s.add_argument("--out", help="write the markdown table here")
     s.set_defaults(fn=cmd_compare)
+
+    s = sub.add_parser("make-counterfactuals", help="generate synthetic counterfactual fakes from real control articles (claude-cli)")
+    s.add_argument("--dataset", default=str(DATASET))
+    s.add_argument("--en", type=int, default=60, help="number of English base articles")
+    s.add_argument("--pt", type=int, default=60, help="number of Portuguese base articles")
+    s.add_argument("--model", default="claude-haiku-5-5", help="generator; must not be an evaluated model")
+    s.add_argument("--effort", default="medium")
+    s.add_argument("--concurrency", type=int, default=4)
+    s.add_argument("--seed", type=int, default=0)
+    s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(fn=cmd_make_counterfactuals)
+
+    s = sub.add_parser("review-counterfactuals", help="human y/n review of generated counterfactuals")
+    s.set_defaults(fn=cmd_review_counterfactuals)
 
     s = sub.add_parser("show-prompt", help="print the exact prompt for an item")
     s.add_argument("--dataset", default=str(DATASET))

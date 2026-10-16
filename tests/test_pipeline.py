@@ -343,3 +343,71 @@ def test_headline_only_items_only_in_headline_variant(tmp_path):
     ]))
     assert [r["id"] for r in load_items(ds)] == ["a"]
     assert [r["id"] for r in load_items(ds, prompt_variant="headline_only")] == ["a", "b"]
+
+
+def _claim_page(claim, verdict, author=None, item_date=None, review_date="2026-08-10T10:00:00Z"):
+    item = {"@type": "CreativeWork"}
+    if author:
+        item["author"] = {"@type": "Person", "name": author}
+    if item_date:
+        item["datePublished"] = item_date
+    ld = {"@context": "https://schema.org", "@type": "ClaimReview", "claimReviewed": claim, "datePublished": review_date,
+          "reviewRating": {"@type": "Rating", "alternateName": verdict}, "itemReviewed": item}
+    return f"<html><head><script type='application/ld+json'>{json.dumps(ld)}</script></head><body></body></html>"
+
+
+def test_claim_review_records():
+    from onion_bench.factcheck import build_claim_record
+    from onion_bench.scrape import get_source
+
+    src = dict(get_source("observador_factcheck"), _since=datetime(2026, 7, 1, tzinfo=timezone.utc))
+    r = build_claim_record(src, "https://observador.pt/factchecks/x/", _claim_page("Governo proíbe carros a gasóleo.", "Errado", "Utilizador de Facebook"))
+    assert (r["label"], r["subset"], r["reject"], r["sourcing_mode"]) == ("fake", "misinformation", None, "fact_check_claimreview")
+    assert r["headline_only"] and r["text"] == "" and r["provenance"]["verdict"] == "Errado"
+    assert build_claim_record(src, "u", _claim_page("Algo verdadeiro.", "Certo"))["subset"] == "fact_checked_true"
+    assert build_claim_record(src, "u", _claim_page("x", "Esticado"))["reject"] == "rating(Esticado)"
+    assert build_claim_record(src, "u", _claim_page("Disse isto.", "Errado", "Luís Montenegro"))["reject"] == "attributed_statement"
+    assert build_claim_record(src, "u", _claim_page("Vídeo mostra cheias.", "Errado"))["reject"] == "media_only_claim"
+    assert build_claim_record(src, "u", _claim_page("Velho boato.", "Errado", item_date="2019-01-01"))["reject"] == "claim_before_since"
+
+
+def test_counterfactual_apply_and_checks():
+    from onion_bench.counterfactual import apply_replacements, check
+    from onion_bench.leaks import rules_from_sources
+
+    base = {"title": "Council approves 12 new homes in Leeds",
+            "text": "A council has approved plans for 12 new homes in Leeds. " + "The plans were discussed by members. " * 10 + "A final vote happened late on Tuesday."}
+    reps = [{"field": "title", "find": "12 new homes", "replace": "120 new homes"},
+            {"field": "text", "find": "12 new homes", "replace": "120 new homes"}]
+    t, x, applied = apply_replacements(base["title"], base["text"], reps)
+    assert t == "Council approves 120 new homes in Leeds" and x.startswith("A council has approved plans for 120 new homes")
+    c = check(base, t, x, applied, rules_from_sources(load_sources()))
+    assert all(c.values()), c
+    # an edit only deep in the body fails the opening/title checks
+    t2, x2, a2 = apply_replacements(base["title"], base["text"], [{"field": "text", "find": "late on Tuesday", "replace": "early on Wednesday"}])
+    c2 = check(base, t2, x2, a2, rules_from_sources(load_sources()))
+    assert not c2["title_changed"] and not c2["opening_changed"]
+    # a find that doesn't match, and an outlet name introduced
+    _, _, a3 = apply_replacements(base["title"], base["text"], [{"field": "title", "find": "nope", "replace": "x"}])
+    assert not check(base, base["title"], base["text"], a3, rules_from_sources(load_sources()))["all_finds_matched"]
+    t4, x4, a4 = apply_replacements(base["title"], base["text"], [{"field": "title", "find": "Council", "replace": "BBC"}])
+    assert not check(base, t4, x4, a4, rules_from_sources(load_sources()))["no_new_outlet_mentions"]
+
+
+def test_select_bases_round_robin():
+    from onion_bench.counterfactual import select_bases
+
+    items = [{"id": f"{s}{i}", "language": "en", "subset": "real_control", "has_text": True, "eval_eligible": True, "source": s}
+             for s in ("bbc", "cbs") for i in range(5)] + [{"id": "sat", "language": "en", "subset": "satire", "has_text": True, "eval_eligible": True, "source": "on"}]
+    b = select_bases(items, {"en": 4})
+    assert len(b) == 4 and {x["source"] for x in b} == {"bbc", "cbs"}
+
+
+def test_balance_keeps_counterfactual_bases():
+    from onion_bench.runner import balance_items
+
+    reals = [{"id": f"r{i}", "language": "pt", "label": "real", "subset": "real_control", "source": "rtp"} for i in range(20)]
+    cfs = [{"id": "cf1", "language": "pt", "label": "fake", "subset": "counterfactual", "source": "counterfactual", "provenance": {"base_id": "r17"}},
+           {"id": "cf2", "language": "pt", "label": "fake", "subset": "counterfactual", "source": "counterfactual", "provenance": {"base_id": "r3"}}]
+    out = {i["id"] for i in balance_items(reals + cfs, seed=0)}
+    assert {"cf1", "cf2", "r17", "r3"} <= out and len(out) == 4

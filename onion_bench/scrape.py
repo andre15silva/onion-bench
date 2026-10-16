@@ -126,6 +126,14 @@ def strip_title_prefix(title: str | None, src: dict) -> tuple[str | None, str | 
     return title, None
 
 
+def record_builder(src: dict):
+    if src.get("kind") == "claim_review":
+        from .factcheck import build_claim_record
+
+        return build_claim_record
+    return build_record
+
+
 def build_record(src: dict, url: str, html: str, cfg: ExtractConfig) -> dict:
     ex = extract(html, cfg)
     text = ex.text
@@ -151,6 +159,8 @@ def build_record(src: dict, url: str, html: str, cfg: ExtractConfig) -> dict:
 
 
 def reject_reason(rec: dict, src: dict, since: datetime, until: datetime | None, min_words: int) -> str | None:
+    if rec.get("reject"):  # decided by a source-specific builder (e.g. fact-check verdict)
+        return rec["reject"]
     if not rec["title"]:
         return "no_title"
     if rec["word_count"] < min_words and not rec.get("headline_only"):
@@ -191,8 +201,13 @@ def scrape_source(
     cands = discover_candidates(fetcher, src, since)
     stats["candidates"] = len(cands)
     cfg = ExtractConfig(**(src.get("extract") or {}))
-    for c in stratified_order(cands, seed):
-        if n_kept >= cap:
+    src = dict(src, _since=since)
+    # Newest-first listings without dates: keep their order and stop after a
+    # run of items older than the window instead of sampling across months.
+    ordered = cands if src.get("keep_discovery_order") else stratified_order(cands, seed)
+    old_streak = 0
+    for c in ordered:
+        if n_kept >= cap or (src.get("stop_after_old") and old_streak >= src["stop_after_old"]):
             break
         if c.url in done:
             continue
@@ -207,8 +222,9 @@ def scrape_source(
             _append_jsonl(rej_path, {"url": c.url, "reason": f"fetch:{e}"})
             stats["fetch_error"] += 1
             continue
-        rec = build_record(src, c.url, html, cfg)
+        rec = record_builder(src)(src, c.url, html, cfg)
         reason = reject_reason(rec, src, since, until, min_words)
+        old_streak = old_streak + 1 if reason in ("before_since", "claim_before_since") else 0
         if reason:
             _append_jsonl(rej_path, {"url": c.url, "reason": reason, "title": rec["title"], "published_at": rec["published_at"]})
             stats[f"rejected:{reason.split('(')[0]}"] += 1
@@ -241,14 +257,15 @@ def import_html(src: dict, files: list[Path], raw_dir: Path) -> int:
         if url in done:
             continue
         rec = build_record(src, url, html, cfg)
-        rec["collected_via"] = "manual_html_import"
+        rec["sourcing_mode"] = "manual_html_import"
+        rec["provenance"] = {"imported_file": f.name}
         _append_jsonl(out_path, rec)
         done.add(url)
         n += 1
     return n
 
 
-def reextract(src: dict, raw_dir: Path, cache_dir: Path) -> dict:
+def reextract(src: dict, raw_dir: Path, cache_dir: Path, since: datetime | None = None) -> dict:
     """Re-run extraction on cached HTML (after changing selectors); no network."""
     path = raw_dir / f"{src['name']}.jsonl"
     cfg = ExtractConfig(**(src.get("extract") or {}))
@@ -259,10 +276,11 @@ def reextract(src: dict, raw_dir: Path, cache_dir: Path) -> dict:
             out.append(rec)
             stats["no_cache"] += 1
             continue
-        new = build_record(src, rec["url"], cache.read_text(encoding="utf-8"), cfg)
+        new = record_builder(src)(dict(src, _since=since) if since else src, rec["url"], cache.read_text(encoding="utf-8"), cfg)
         new["fetched_at"] = rec["fetched_at"]
-        if "collected_via" in rec:
-            new["collected_via"] = rec["collected_via"]
+        for k in ("collected_via", "sourcing_mode", "provenance"):
+            if k in rec and k not in new:
+                new[k] = rec[k]
         stats["changed" if new["text"] != rec["text"] or new["title"] != rec["title"] else "unchanged"] += 1
         out.append(new)
     path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8")
@@ -301,7 +319,8 @@ def import_index(src: dict, page: Path, raw_dir: Path, url_pattern: str) -> tupl
             "published_at": f"{d.group(1)}T12:00:00+00:00" if d else None,
             "modified_at": None, "authors": [], "section": None, "keywords": [],
             "page_language": None, "site_name": None, "extraction_method": "index_headline",
-            "word_count": 0, "headline_only": True, "collected_via": "manual_index_import",
+            "word_count": 0, "headline_only": True, "sourcing_mode": "manual_index_import",
+            "provenance": {"index_page_file": page.name, "index_page_url": "https://expresso.pt/inimigo-publico"},
             "html_sha256": None,
         })
         n += 1

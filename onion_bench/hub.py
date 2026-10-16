@@ -26,23 +26,45 @@ configs:
 
 # onion-bench
 
-Satirical ("fake") and real news articles published **after {since}**, i.e.
-after the training cutoff of the evaluated models, for testing whether LLMs can
-tell satire from real news without web access.
+Fake (satire, fact-checked misinformation, synthetic counterfactuals) and real news
+published **after {since}**, i.e. after the training cutoff of the evaluated models,
+for testing whether LLMs can tell fake from real news without web access.
 
 ## Fields
 
 Model-facing (the only fields ever placed in a prompt): `title`, `text`.
-Text is verbatim from the publisher page (whitespace-normalised, page chrome removed).
+Text is verbatim from the publisher page (whitespace-normalised, page chrome removed),
+except for `synthetic_counterfactual` items (see below). `has_text` is false for
+headline-only items (fact-check claims, headlines from index pages), which are used
+only with the headline-only prompt variant.
 
-Labels: `label` (`fake` | `real`), `subset` (`satire` | `real_control` | `real_implausible`).
+Labels: `label` (`fake` | `real`) and `subset`:
+
+| subset | label | what it is |
+|---|---|---|
+| `satire` | fake | satirical outlets |
+| `misinformation` | fake | viral claims rated false by a fact-checker |
+| `counterfactual` | fake | real article with one plausible factual change made by an LLM |
+| `real_control` | real | ordinary reporting from mainstream outlets |
+| `real_implausible` | real | real stories that sound fake (curated or scored + reviewed) |
+| `fact_checked_true` | real | viral claims rated true by a fact-checker |
+
+**Sourcing** (`sourcing_mode`, with details in `provenance`):
+
+{modes}
 
 Traceability: `source`, `source_name`, `url`, `published_at`, `modified_at`,
 `authors`, `section`, `keywords`, `fetched_at`, `extraction_method`,
-`collected_via`, `content_sha256`, `selection_method`, `implausibility_score`.
+`original_title` (headline before outlet branding was stripped), `content_sha256`,
+`selection_method`, `implausibility_score`, `provenance`. For fact-check claims,
+`provenance` holds the fact-checker, verdict, review URL and dates. For
+counterfactuals, it holds the base article's id and URL, the generator model and
+version, the exact find/replace edits, the change summary, the automatic checks and
+`human_verified`.
 
 Leakage control: `leak_flags` lists outlet names/domains (and satire
-disclaimers) found in `title`/`text`; `eval_eligible` is false when any were found.
+disclaimers) found in `title`/`text`; `eval_eligible` is false when any were found
+or when an item failed its own checks.
 
 ## Counts
 
@@ -55,7 +77,9 @@ disclaimers) found in `title`/`text`; `eval_eligible` is false when any were fou
 ## Licensing
 
 Articles remain the copyright of their publishers ({publishers}). This dataset
-is intended for non-commercial research use.
+is intended for non-commercial research use. `counterfactual` items are deliberately
+false versions of real reports, made for this benchmark. They are labelled as such,
+avoid attributing wrongdoing to named people, and must not be republished as news.
 """
 
 
@@ -67,9 +91,13 @@ def push(dataset: Path, repo_id: str, *, private: bool = True, text_mode: str = 
         for r in rows:
             r["title"] = None
             r["text"] = None
-        note = "Texts are omitted (`title`/`text` are null). Re-create them from `url` with the onion-bench scraper; verify with `content_sha256`."
+        note = ("Texts are omitted (`title`/`text` are null). Re-create them from `url` with the onion-bench scraper and verify with "
+                "`content_sha256`. For counterfactuals, re-scrape `provenance.base_url` and apply `provenance.replacements`.")
     else:
         note = "Full texts included."
+    from .assemble import SOURCING_MODES
+
+    modes = "\n".join(f"- `{k}`: {v}" for k, v in SOURCING_MODES.items())
     counts = Counter((r["subset"], r["language"], r["source"]) for r in rows)
     table = "| subset | language | source | items |\n|---|---|---|---|\n" + "\n".join(
         f"| {s} | {l} | {src} | {n} |" for (s, l, src), n in sorted(counts.items())
@@ -80,6 +108,6 @@ def push(dataset: Path, repo_id: str, *, private: bool = True, text_mode: str = 
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "onion_bench.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-        (d / "README.md").write_text(CARD.format(since=since, counts=table, text_mode_note=note, publishers=publishers))
+        (d / "README.md").write_text(CARD.format(since=since, counts=table, text_mode_note=note, publishers=publishers, modes=modes))
         api.upload_folder(folder_path=str(d), repo_id=repo_id, repo_type="dataset")
     return f"https://huggingface.co/datasets/{repo_id}"

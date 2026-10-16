@@ -15,8 +15,11 @@ June 2026 for both, so the collection window starts **2026-07-01**).
 | subset | label | sources | language |
 |---|---|---|---|
 | `satire` | fake | The Onion, Imprensa Falsa, Inimigo Público (Expresso)¹ | en, pt |
+| `misinformation` | fake | claims rated false by Snopes and Observador Fact Check (headline-only) | en, pt |
+| `counterfactual` | fake | real control articles with one plausible factual change (LLM-made, checked) | en, pt |
 | `real_control` | real | BBC News, CBS News, RTP Notícias, Observador, Notícias ao Minuto | en, pt |
 | `real_implausible` | real | Oddity Central, r/nottheonion², LLM-scored and human-reviewed picks from the control pool | en, pt |
+| `fact_checked_true` | real | claims rated true by Snopes (headline-only) | en |
 
 ¹ expresso.pt sits behind DataDome bot protection, and its robots.txt disallows AI
 agents. The scraper does not get around either, so Inimigo Público has to be
@@ -48,6 +51,38 @@ Some articles name their own outlet in the text: "the BBC understands…",
 every source's patterns), and `eval_eligible=false` keeps those items out of
 the eval split. A satire disclaimer in the *title* also blocks; the word
 "satire" in a body text is only recorded.
+
+### Harder fakes and sourcing modes
+
+Besides satire, two kinds of fake are less obviously absurd:
+
+- **`misinformation`** comes from viral claims that fact-checkers rated false (Snopes in
+  English, Observador Fact Check in Portuguese). They are read from the pages' schema.org
+  `ClaimReview`. Claims rated true become **`fact_checked_true`**, which are real but
+  sound fake. Only clear-cut verdicts are kept. Statements attributed to named people
+  are dropped (the label would be ambiguous), as are claims about a photo or video and
+  claims first seen before the window. Items are headline-only (the claim text), so
+  they are used only by the `headline_only` variant. Observador published no "Certo"
+  (true) verdicts in the window, so `fact_checked_true` is English-only for now.
+- **`counterfactual`** items are real post-cutoff articles with one material, plausible
+  factual change, made with `onion-bench make-counterfactuals`. The generator is
+  `claude-haiku-5-5`, which is not an evaluated model, but it is from the same family.
+  It returns exact find/replace edits that are applied in code, so the rest of the
+  article stays verbatim. The change must reach the headline and the opening, which
+  puts it in every prompt variant. Automatic checks decide eligibility: every find
+  matches, the headline and opening change, at most 15% of words change, no outlet
+  name is introduced, and no ambiguous short finds. The generator is told not to
+  attribute wrongdoing, deaths, illnesses or quotes to real named people.
+  `onion-bench review-counterfactuals` records a human verdict. The original article
+  stays in the dataset, so each counterfactual has a real twin; the report adds a
+  paired metric (how often the edited version is rated more likely fake than its
+  original), and balancing keeps pairs together.
+
+Every row says how it was obtained. `sourcing_mode` is one of `publisher_scrape`,
+`reddit_linked_scrape`, `manual_html_import`, `manual_index_import`,
+`fact_check_claimreview` or `synthetic_counterfactual`. `provenance` holds the details:
+fact-checker, verdict and review URL; base article, generator, edits and checks; the
+index page an item came from; and so on.
 
 ### Real news that sounds fake
 

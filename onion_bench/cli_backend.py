@@ -36,7 +36,7 @@ from pathlib import Path
 
 from .prompts import OUTPUT_SCHEMA, PROMPT_VERSION, user_message
 from .prompts import system_prompt as _system_prompt
-from .runner import EvalConfig, Job, _Writer, error_record
+from .runner import EvalConfig, Job, ModelSpec, _Writer, error_record
 
 log = logging.getLogger(__name__)
 
@@ -214,3 +214,49 @@ async def run_cli(
     finally:
         out.close()
     return counts
+
+
+async def call_structured(
+    model: str, effort: str, system: str, user: str, schema: dict, *,
+    claude_bin: str | None = None, timeout_s: float = 900,
+) -> dict:
+    """One `claude -p` call with a custom system prompt and JSON schema, under
+    the same isolation and setup checks as the eval runner. Returns
+    {"output", "setup_ok", "problems", "model_served", "error"}."""
+    claude_bin = claude_bin or shutil.which("claude")
+    job = Job(ModelSpec(model, effort=effort), {"id": "-", "title": "", "text": ""}, 0)
+    wd = tempfile.mkdtemp(prefix="session-")
+    proc = await asyncio.create_subprocess_exec(
+        *command(job, claude_bin, system=system, schema=schema, user=user), cwd=wd, env=child_env(),
+        stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout_s)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"output": None, "setup_ok": False, "problems": ["timeout"], "model_served": [], "error": "timeout"}
+    init = result = None
+    served: set[str] = set()
+    for line in out.decode("utf-8", "replace").splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if e.get("type") == "system" and e.get("subtype") == "init":
+            init = e
+        elif e.get("type") == "result":
+            result = e
+            served |= set((e.get("modelUsage") or {}).keys())
+    problems = []
+    if not init or init.get("tools") != ["StructuredOutput"] or init.get("mcp_servers") or init.get("apiKeySource") not in ("none", None):
+        problems.append("setup")
+    if served and served != {model}:
+        problems.append(f"served_by={sorted(served)}")
+    return {
+        "output": (result or {}).get("structured_output"),
+        "setup_ok": not problems,
+        "problems": problems,
+        "model_served": sorted(served),
+        "stop_reason": (result or {}).get("stop_reason"),
+        "error": None if result else (err.decode("utf-8", "replace")[-300:] or "no result"),
+    }

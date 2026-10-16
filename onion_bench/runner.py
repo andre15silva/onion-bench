@@ -95,12 +95,15 @@ def load_items(dataset: Path, include_leak_flagged: bool = False, prompt_variant
 
 def balance_items(items: list[dict], seed: int = 0) -> list[dict]:
     """Per language, keep min(n_fake, n_real) items of each label. Within a
-    label, real_implausible items take up to half the slots, then sources are
-    taken round-robin (random order within a source) so no outlet dominates."""
+    label, originals of counterfactuals come first (to keep pairs), then
+    real_implausible items take up to half the slots, then sources are taken
+    round-robin (random order within a source) so no outlet dominates."""
     import random
     from collections import defaultdict
 
     rng = random.Random(seed)
+    # Originals of counterfactuals are kept first, so pairs survive balancing.
+    paired = {(it.get("provenance") or {}).get("base_id") for it in items if it.get("subset") == "counterfactual"} - {None}
     by_lang: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for it in sorted(items, key=lambda r: r["id"]):
         by_lang[it["language"]][it["label"]].append(it)
@@ -108,8 +111,9 @@ def balance_items(items: list[dict], seed: int = 0) -> list[dict]:
     for groups in by_lang.values():
         n = min(len(groups["fake"]), len(groups["real"]))
         for label_items in (groups["fake"], groups["real"]):
-            priority = [i for i in label_items if i["subset"] == "real_implausible"]
-            rest = [i for i in label_items if i["subset"] != "real_implausible"]
+            bases = [i for i in label_items if i["id"] in paired]
+            priority = [i for i in label_items if i["subset"] == "real_implausible" and i["id"] not in paired]
+            rest = [i for i in label_items if i["subset"] != "real_implausible" and i["id"] not in paired]
             rng.shuffle(priority)
             by_src: dict[str, list[dict]] = defaultdict(list)
             for i in rest:
@@ -123,7 +127,7 @@ def balance_items(items: list[dict], seed: int = 0) -> list[dict]:
                 for src in sorted(by_src):
                     if by_src[src]:
                         ordered.append(by_src[src].pop())
-            keep.extend((ordered + priority[n // 2 :])[:n])
+            keep.extend((bases + ordered + priority[n // 2 :])[:n])
     ids = {i["id"] for i in keep}
     return [it for it in items if it["id"] in ids]
 
