@@ -1,5 +1,82 @@
 # onion-bench
 
+> **Results, October 2026.** We gave Claude Opus 5.5 and Claude Sonnet 5.5 news from
+> after their training cutoff, with no internet access. The models found satire easily.
+> A small, believable change to a real article got past them most of the time.
+
+## Results
+
+We collected 1,891 news items from July to October 2026. Each item is real or fake.
+Each model answered "real or fake?" five times per item, in separate calls with no tools.
+In total, the models gave 19,300 answers.
+
+| | Opus 5.5 | Sonnet 5.5 |
+|---|---:|---:|
+| Satire called "fake" (full text) | 98.9% | 99.0% |
+| Edited real news called "fake" (full text) | 21.5% | 10.1% |
+| True viral claims called "fake" (headline only) | 30.0% | 18.9% |
+| Ordinary real news called "fake" (full text) | 3.6% | 1.0% |
+| MCC, full text (724 items) [95% CI] | 0.77 [0.73, 0.81] | 0.77 [0.74, 0.81] |
+| MCC, headline only (1,206 items) [95% CI] | 0.70 [0.66, 0.73] | 0.69 [0.65, 0.72] |
+
+MCC is the Matthews correlation coefficient: 1 is perfect, 0 is chance. The two models
+have the same total score (paired McNemar test: p = 1.0 for full text, p = 0.56 for headline only).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/answers-by-group-dark.svg">
+  <img alt="Bar chart. Share of answers that were fake, per group. Full text: satire 98.9% (Opus) and 99.0% (Sonnet); edited real news 21.5% and 10.1%; ordinary real news 3.6% and 1.0%; real but strange 0% and 0%. Headline only: satire 95.2% and 93.8%; false viral claims 84.1% and 70.8%; edited real news 8.0% and 6.0%; ordinary real news 4.8% and 2.8%; real but strange 8.9% and 15.6%; true viral claims 30.0% and 18.9%." src="docs/figures/answers-by-group-light.svg">
+</picture>
+
+**Figure 1.** How often each model answered "fake". For fake groups, a perfect model is at 100%.
+For real groups, a perfect model is at 0%.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/confidence-dark.svg">
+  <img alt="Dot strip. Probability of fake per item, full text. Opus medians: satire 99%, edited real news 12%, real originals 9%. Sonnet medians: satire 98%, edited real news 8%, real originals 7%." src="docs/figures/confidence-light.svg">
+</picture>
+
+**Figure 2.** Probability of "fake" for each item (full text). Edited real news is near its real
+originals and far from satire. The models were confident that most edited articles are real.
+
+### What we found
+
+- **The models find satire, not falsehood.** Absurd text is easy. A believable false fact passes.
+- **A one-fact edit gets past the models.** A third model (Claude Haiku 5.5) changed one fact in
+  real articles, for example "approved" to "refused". Opus caught 21.5% of these fakes and Sonnet
+  caught 10.1%. With the headline only, both models were near chance.
+- **Real news about new events can look fake.** News that changes what a model knows (for example,
+  the death of a senator) received the answer "fake". True viral claims received "fake" in 19–30% of answers.
+- **The two models make different errors.** Opus answers "fake" more often. It catches more false
+  claims (84% against 71%) but also rejects more true claims (30% against 19%).
+
+### Examples
+
+Percent is the probability of "fake" (mean of five answers). The answer is the majority of five.
+
+| Item | Truth | Opus 5.5 | Sonnet 5.5 |
+|---|---|---|---|
+| The Onion: "CDC Successfully Eradicates Children" | fake | fake (99%) | fake (99%) |
+| BBC, edited: "Plans to redevelop fire-struck hall ~~partly approved~~ **refused**" | fake | real (4%) | real (7%) |
+| BBC, edited: "Land Rover driver ~~dies~~ **injured** in Perthshire crash" | fake | real (3%) | real (6%) |
+| CBS, edited: "Florida Senate race set between ~~Ashley Moody~~ **Chris Gleason** and Angie Nixon after projected primary wins" | fake | fake (88%) | fake (88%) |
+| CBS: "Thune says of Lindsey Graham 'I feel his absence every day' in Capitol ceremony" | real | fake (72%) | fake (70%) |
+| BBC: "Canada installs large Lake Ontario sign in latest jab at US" | real | fake (74%) | real (28%) |
+| Snopes, rated true: "The YouTube channel of the Miami Heat posted a link to a July 27, 2026, news conference announcing the signing of basketball superstar LeBron James." | real | fake (78%) | fake (71%) |
+
+### More detail
+
+- Full write-up with interactive charts: [`docs/blog/onion-bench-findings.html`](docs/blog/onion-bench-findings.html)
+  (download the file and open it in a browser).
+- Numbers behind the figures: [`docs/results/summary.json`](docs/results/summary.json).
+  Regenerate the figures with `onion-bench figures` after `onion-bench report` for both prompt variants.
+- Limits: Claude Haiku 5.5, which made the edited news, is from the same model family as the models
+  under test. Some fact-check labels apply to an image, not to the claim text. Portuguese satire
+  with full text has only 7 items. See [Known confounds](#known-confounds).
+
+---
+
+## About the benchmark
+
 **Can a model tell satire from real news when it cannot have seen either?**
 
 onion-bench collects satirical ("fake") and real news articles published *after*

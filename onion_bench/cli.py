@@ -211,6 +211,18 @@ def cmd_review_counterfactuals(a) -> None:
     review(RAW / "counterfactual.jsonl")
 
 
+def cmd_figures(a) -> None:
+    from .figures import make_figures, summarize
+
+    out = Path(a.out)
+    summary = summarize(Path(a.dataset), Path(a.full), Path(a.headline_only))
+    (out / "results").mkdir(parents=True, exist_ok=True)
+    (out / "results" / "summary.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
+    for p in make_figures(summary, out / "figures"):
+        print("wrote", p)
+    print("wrote", out / "results" / "summary.json")
+
+
 def cmd_show_prompt(a) -> None:
     from .prompts import system_prompt, user_message
     from .runner import load_items
@@ -333,6 +345,13 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("review-counterfactuals", help="human y/n review of generated counterfactuals")
     s.set_defaults(fn=cmd_review_counterfactuals)
+
+    s = sub.add_parser("figures", help="README figures (light/dark SVG) and results/summary.json from two report dirs")
+    s.add_argument("--dataset", default=str(DATASET))
+    s.add_argument("--full", default=str(ROOT / "results" / "v3_full"), help="report dir of the full-text run")
+    s.add_argument("--headline-only", default=str(ROOT / "results" / "v3_headline_only"), help="report dir of the headline-only run")
+    s.add_argument("--out", default=str(ROOT / "docs"))
+    s.set_defaults(fn=cmd_figures)
 
     s = sub.add_parser("show-prompt", help="print the exact prompt for an item")
     s.add_argument("--dataset", default=str(DATASET))
