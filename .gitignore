@@ -223,5 +223,5 @@ __marimo__/
 data/cache/
 data/raw/
 data/dataset/
-results/
+/results/
 data/logs/
